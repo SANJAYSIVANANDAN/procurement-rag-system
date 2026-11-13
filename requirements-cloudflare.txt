@@ -1,3 +1,0 @@
-# Ultra-minimal dependencies for Cloudflare Workers
-# Only essential packages to avoid size limits
-requests==2.31.0
