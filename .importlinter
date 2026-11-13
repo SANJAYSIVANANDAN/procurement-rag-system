@@ -1,0 +1,126 @@
+[importlinter]
+root_package = covenantiq
+include_external_packages = False
+
+# Encodes the "must not import" column of PROJECT_SPEC.md section 8.2.
+# allow_indirect_imports: only direct imports are judged; layers may reach lower layers transitively.
+
+[importlinter:contract:core]
+name = core imports nothing internal
+type = forbidden
+source_modules = covenantiq.core
+forbidden_modules =
+    covenantiq.db
+    covenantiq.ai
+    covenantiq.ingestion
+    covenantiq.rag
+    covenantiq.memory
+    covenantiq.analysis
+    covenantiq.graphs
+    covenantiq.services
+    covenantiq.streaming
+    covenantiq.workers
+    covenantiq.api
+allow_indirect_imports = True
+
+[importlinter:contract:db]
+name = db stays below services, graphs and api
+type = forbidden
+source_modules = covenantiq.db
+forbidden_modules =
+    covenantiq.services
+    covenantiq.graphs
+    covenantiq.api
+allow_indirect_imports = True
+
+[importlinter:contract:ai]
+name = ai does not touch db or services
+type = forbidden
+source_modules = covenantiq.ai
+forbidden_modules =
+    covenantiq.db
+    covenantiq.services
+allow_indirect_imports = True
+
+[importlinter:contract:ingestion]
+name = ingestion does not import api or graphs
+type = forbidden
+source_modules = covenantiq.ingestion
+forbidden_modules =
+    covenantiq.api
+    covenantiq.graphs
+allow_indirect_imports = True
+
+[importlinter:contract:rag]
+name = rag does not import api or services
+type = forbidden
+source_modules = covenantiq.rag
+forbidden_modules =
+    covenantiq.api
+    covenantiq.services
+allow_indirect_imports = True
+
+[importlinter:contract:memory]
+name = memory does not import api or graphs
+type = forbidden
+source_modules = covenantiq.memory
+forbidden_modules =
+    covenantiq.api
+    covenantiq.graphs
+allow_indirect_imports = True
+
+[importlinter:contract:analysis-contract]
+name = contract analysis does not import api
+type = forbidden
+source_modules = covenantiq.analysis.contract
+forbidden_modules = covenantiq.api
+allow_indirect_imports = True
+
+[importlinter:contract:analysis-vendor]
+name = vendor scoring stays pure
+type = forbidden
+source_modules = covenantiq.analysis.vendor
+forbidden_modules =
+    covenantiq.db
+    covenantiq.api
+    covenantiq.ai
+allow_indirect_imports = True
+
+[importlinter:contract:graphs]
+name = graphs use ports, never api or db
+type = forbidden
+source_modules = covenantiq.graphs
+forbidden_modules =
+    covenantiq.api
+    covenantiq.db
+allow_indirect_imports = True
+
+[importlinter:contract:services]
+name = services do not import api
+type = forbidden
+source_modules = covenantiq.services
+forbidden_modules = covenantiq.api
+allow_indirect_imports = True
+
+[importlinter:contract:streaming]
+name = streaming does not import services
+type = forbidden
+source_modules = covenantiq.streaming
+forbidden_modules = covenantiq.services
+allow_indirect_imports = True
+
+[importlinter:contract:workers]
+name = workers do not import api
+type = forbidden
+source_modules = covenantiq.workers
+forbidden_modules = covenantiq.api
+allow_indirect_imports = True
+
+[importlinter:contract:api]
+name = api reaches data only through services
+type = forbidden
+source_modules = covenantiq.api
+forbidden_modules =
+    covenantiq.db.models
+    covenantiq.db.repositories
+allow_indirect_imports = True

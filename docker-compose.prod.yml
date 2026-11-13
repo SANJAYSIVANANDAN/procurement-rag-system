@@ -1,0 +1,25 @@
+# Production skeleton. Use with: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Docker secrets, the reverse-proxy profile and image publishing are completed in Milestone 19.
+
+x-prod: &prod
+  restart: always
+  logging:
+    driver: json-file
+    options: {max-size: 20m, max-file: "5"}
+
+services:
+  postgres: *prod
+  redis: *prod
+  rabbitmq: *prod
+
+  migrate:
+    build: !reset null
+
+  api: *prod
+  worker-ingest: *prod
+  worker-analysis: *prod
+
+  streamlit:
+    <<: *prod
+    build: !reset null
+    ports: !reset []

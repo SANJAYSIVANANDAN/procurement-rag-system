@@ -1,0 +1,66 @@
+[project]
+name = "covenantiq"
+version = "0.1.0"
+description = "AI contract intelligence and vendor risk analysis platform"
+requires-python = ">=3.12"
+dependencies = [
+    "celery[redis]>=5.4",
+    "fastapi>=0.115",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.7",
+    "structlog>=24.4",
+    "typer>=0.12",
+    "uvicorn[standard]>=0.32",
+]
+
+[project.scripts]
+covenantiq = "covenantiq.cli:app"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27",
+    "import-linter>=2.1",
+    "mypy>=1.13",
+    "pre-commit>=4.0",
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=5.0",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/covenantiq"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/covenantiq"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "kombu.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["src/covenantiq"]

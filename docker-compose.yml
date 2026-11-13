@@ -1,0 +1,177 @@
+name: covenantiq
+
+x-backend-env: &backend-env
+  CIQ_ENV: ${CIQ_ENV:-dev}
+  CIQ_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ciq}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-covenantiq}
+  CIQ_CHECKPOINT_DB_URL: postgresql://${POSTGRES_USER:-ciq}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-covenantiq}
+  CIQ_REDIS_URL: redis://:${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}@redis:6379/0
+  CIQ_CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+  CIQ_RABBITMQ_URL: amqp://${RABBITMQ_USER:-ciq}:${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}@rabbitmq:5672/covenantiq
+  CIQ_JWT_SECRET: ${CIQ_JWT_SECRET:?set CIQ_JWT_SECRET in .env}
+  CIQ_OFFLINE: ${CIQ_OFFLINE:-0}
+  CIQ_LLM_PROVIDER: ${CIQ_LLM_PROVIDER:-anthropic}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  CIQ_EMBEDDING_PROVIDER: ${CIQ_EMBEDDING_PROVIDER:-voyage}
+  CIQ_RERANK_PROVIDER: ${CIQ_RERANK_PROVIDER:-voyage}
+  VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+  CIQ_UPLOAD_DIR: /data/uploads
+  CIQ_LOG_FORMAT: json
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ciq}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-covenantiq}
+    command: ["postgres", "-c", "shared_buffers=512MB", "-c", "max_connections=100",
+              "-c", "maintenance_work_mem=256MB"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}"]
+    volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" --no-auth-warning ping | grep PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    restart: unless-stopped
+    networks: [backend]
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    hostname: rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-ciq}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
+      RABBITMQ_DEFAULT_VHOST: covenantiq
+    volumes:
+      - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-covenantiq.conf:ro
+      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      - rabbitdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+    networks: [backend]
+
+  migrate:
+    build: {context: ., dockerfile: docker/backend.Dockerfile, target: runtime}
+    image: ${CIQ_IMAGE_BACKEND:-covenantiq-backend:local}
+    command: ["covenantiq", "migrate"]          # alembic upgrade head + checkpointer setup (from M3)
+    environment: *backend-env
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: "no"
+    networks: [backend]
+
+  api:
+    image: ${CIQ_IMAGE_BACKEND:-covenantiq-backend:local}
+    command: ["uvicorn", "covenantiq.api.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "${CIQ_API_WORKERS:-2}", "--proxy-headers", "--timeout-graceful-shutdown", "25"]
+    environment: *backend-env
+    volumes: [uploads:/data/uploads]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      # Switches to /health/ready once readiness checks exist.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/v1/health/live',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+    networks: [backend, frontend]
+
+  worker-ingest:
+    image: ${CIQ_IMAGE_BACKEND:-covenantiq-backend:local}
+    command: ["celery", "-A", "covenantiq.workers.celery_app", "worker",
+              "-Q", "document_processing,embedding_generation", "-n", "ingest@%h",
+              "--concurrency", "${CIQ_INGEST_CONCURRENCY:-2}", "--loglevel", "INFO",
+              "--max-tasks-per-child", "25"]
+    environment:
+      <<: *backend-env
+      OMP_NUM_THREADS: "2"
+    volumes: [uploads:/data/uploads]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A covenantiq.workers.celery_app inspect ping -d ingest@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
+    stop_grace_period: 120s                      # let running tasks finish (acks_late covers the rest)
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {memory: 6g}
+    networks: [backend]
+
+  worker-analysis:
+    image: ${CIQ_IMAGE_BACKEND:-covenantiq-backend:local}
+    command: ["celery", "-A", "covenantiq.workers.celery_app", "worker",
+              "-Q", "contract_analysis,vendor_analysis", "-n", "analysis@%h",
+              "--concurrency", "${CIQ_ANALYSIS_CONCURRENCY:-4}", "--loglevel", "INFO"]
+    environment: *backend-env
+    volumes: [uploads:/data/uploads:ro]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      redis: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A covenantiq.workers.celery_app inspect ping -d analysis@$$HOSTNAME --timeout 5 | grep -q pong"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    stop_grace_period: 60s
+    restart: unless-stopped
+    networks: [backend]
+
+  streamlit:
+    build: {context: ., dockerfile: docker/frontend.Dockerfile}
+    image: ${CIQ_IMAGE_FRONTEND:-covenantiq-frontend:local}
+    environment:
+      CIQ_API_BASE_URL: http://api:8000/api/v1
+    ports: ["8501:8501"]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health',timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    networks: [frontend]
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  rabbitdata: {}
+  uploads: {}
+
+networks:
+  backend: {internal: false}     # set internal: true in prod if workers need no egress (they do: LLM APIs)
+  frontend: {}
