@@ -1,8 +1,10 @@
 import typer
+from alembic import command
 from pydantic import ValidationError
 
 from covenantiq import __version__
 from covenantiq.core.config import Settings
+from covenantiq.db.migrations import alembic_config
 
 app = typer.Typer(help="CovenantIQ command line.", no_args_is_help=True)
 
@@ -15,8 +17,9 @@ def version() -> None:
 
 @app.command()
 def migrate() -> None:
-    """Apply database migrations. A no-op until the schema arrives in Milestone 3."""
-    typer.echo("no migrations to apply yet")
+    """Upgrade the database schema to the latest Alembic revision."""
+    command.upgrade(alembic_config(), "head")
+    typer.echo("database is at head")
 
 
 @app.command("check-config")

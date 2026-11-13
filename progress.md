@@ -8,7 +8,8 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 |---|---|
 | M1 — Repository setup and architecture skeleton | Done and committed |
 | M2 — Docker infrastructure | Code complete and committed; Docker run not yet verified (Docker not installed) |
-| M3–M19 | Not started |
+| M3 — PostgreSQL and SQLAlchemy | Code and tests complete and committed; pgvector-dependent tests unverified (need Docker or a pgvector database) |
+| M4–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -89,8 +90,37 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 ### Not yet verified (needs Docker)
 - `docker compose up --build` reaching healthy; image builds; RabbitMQ loading `definitions.json` alongside `RABBITMQ_DEFAULT_*`; `psql` showing the `vector` extension; the e2e smoke tests.
 
+## M3 — PostgreSQL and SQLAlchemy
+
+### Built
+- `db/base.py` (naming convention, enum mapping, mixins), `db/scope.py` (`OwnershipScope`), `db/session.py` (pooled and NullPool engines), `db/uow.py` (`UnitOfWork`), `db/migrations.py` (head and current revision helpers).
+- 15 ORM models in `db/models/` covering every table in spec section 14, with the constraints from section 15.3. All 16 DB enums live in `core/enums.py`.
+- 14 repositories in `db/repositories/`. Every user-data method takes a scope; worker-only methods are prefixed `system_`; state changes use compare-and-set (`cas_transition`). `ChunkSearchRepository` is a stub (M9).
+- Alembic: `alembic.ini`, async `migrations/env.py` (excludes LangGraph checkpointer tables), migrations 0001 to 0005.
+- `covenantiq migrate` now runs `alembic upgrade head`. `GET /api/v1/health/ready` checks the database and that the schema is at head; the API health check in Compose now uses it. The API lifespan owns the DB engine.
+
+### Tests
+- Unit (no database): scope-contract reflection (every user-data repository method takes `scope` or is `system_*`; only users are exempt; the registry is complete), model metadata, readiness endpoint mapping. 76 unit tests pass.
+- Integration (need `CIQ_TEST_DATABASE_URL`; skipped otherwise): constraints, document, vendor, chat, analysis, assessment, citation, clause and chunk repositories, and readiness. Full run: 116 passed, 7 skipped, 97.7% coverage.
+
+### Verified
+- Migrations generate offline and apply to real PostgreSQL 18. Downgrade to base leaves 0 tables, 0 enums and 0 extensions; a second upgrade restores 16 tables and 16 enums.
+- Acceptance criteria: duplicate SHA rejected only for active documents; citation CHECK rejects zero or two parents; one active job per document; message sequence and client-id uniqueness; concurrent compare-and-set has exactly one winner (documents, processing jobs); concurrent identical analysis requests create one job; ownership isolation on every repository; uncommitted work discarded; reflection test passes.
+- ORM models compared against the migrated database: no differences except the two pgvector stand-ins used on the test machine.
+- Lint, mypy (strict) and the 13 import contracts pass.
+
+### Not yet verified (needs pgvector)
+- The test machine has no Docker, the installed PostgreSQL 18 has no pgvector, and the only embeddable build I could use lacks citext and pg_trgm. I ran the tests on a private throwaway PostgreSQL 18 cluster with `REAL[]` substituted for `VECTOR(1024)` and the HNSW index skipped.
+- Seven tests skip: three Docker smoke tests, two migration tests (round trip through the real migrations, models versus migrated schema) and one embedding-write test. Please run `CIQ_TEST_DATABASE_URL=... uv run pytest tests` once against `pgvector/pgvector:pg16`; that is the check that closes M3.
+- Embedding writes through asyncpg may need pgvector's asyncpg codec registration. Decide when M8 exercises it.
+
+### Fixed along the way
+- A unit test for `migrate` was silently running a real migration against whichever database the environment pointed at. It now mocks the Alembic call.
+
 ## Deviations from the spec
 
+- M3: citations are created in migration 0005, not 0004, because they reference findings and risk dimensions.
+- M3: `document_processing_jobs` has a `created_at` column (not in the spec's ER diagram), needed for the stuck-job sweep.
 - M2: the backend image has no ENTRYPOINT. The spec says the entrypoint is the `covenantiq` CLI, but its own Compose commands start with `uvicorn` and `celery`, which would break.
 - M2: the Docling model-download stage is deferred to M7, when the dependency is added.
 - M2: the API health check uses `/health/live` until readiness checks exist.
@@ -101,4 +131,5 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 
 - Install Docker Desktop (not present on this machine), then run `cp .env.example .env`, `make up`, `make ps` and `CIQ_E2E=1 uv run pytest tests/e2e` to close out M2.
 - M1 and M2 are committed locally on `main`; nothing has been pushed.
-- Next: M3 — PostgreSQL and SQLAlchemy (models, Alembic, repositories, unit of work).
+- Run the pgvector verification described under M3 once Docker is available.
+- Next: M4 — Authentication (Argon2 hashing, JWT, register/login/me, rate limiting).

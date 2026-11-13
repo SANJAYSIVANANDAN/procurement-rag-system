@@ -20,12 +20,16 @@ FROM builder AS test
 RUN uv sync --frozen
 COPY tests ./tests
 COPY config ./config
+COPY migrations ./migrations
+COPY alembic.ini ./alembic.ini
 CMD ["pytest", "tests/unit", "-q"]
 
 FROM base AS runtime
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 COPY --chown=app:app src ./src
 COPY --chown=app:app config ./config
+COPY --chown=app:app migrations ./migrations
+COPY --chown=app:app alembic.ini ./alembic.ini
 ENV PATH=/app/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1

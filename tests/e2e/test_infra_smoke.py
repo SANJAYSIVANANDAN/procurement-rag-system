@@ -20,6 +20,12 @@ def test_api_is_live() -> None:
     assert response.json() == {"status": "ok"}
 
 
+def test_api_is_ready_and_schema_is_at_head() -> None:
+    response = httpx.get(f"{API_URL}/api/v1/health/ready", timeout=5)
+    assert response.status_code == 200
+    assert response.json()["checks"] == {"database": "ok", "migrations": "ok"}
+
+
 def test_rabbitmq_accepts_connections() -> None:
     with Connection(os.environ["CIQ_RABBITMQ_URL"], connect_timeout=5) as connection:
         connection.ensure_connection(max_retries=2)

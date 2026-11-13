@@ -19,9 +19,12 @@ def test_version() -> None:
     assert result.output.strip() == __version__
 
 
-def test_migrate_is_a_noop_for_now() -> None:
+def test_migrate_upgrades_to_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("covenantiq.cli.command.upgrade", lambda _config, rev: calls.append(rev))
     result = runner.invoke(app, ["migrate"])
     assert result.exit_code == 0
+    assert calls == ["head"]
 
 
 def test_check_config_ok(valid_env: dict[str, str]) -> None:
