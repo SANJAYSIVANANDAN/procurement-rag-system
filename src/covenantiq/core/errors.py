@@ -8,6 +8,7 @@ class ErrorCode(StrEnum):
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     TOO_MANY_PAGES = "TOO_MANY_PAGES"
     UNAUTHENTICATED = "UNAUTHENTICATED"
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
     TOKEN_EXPIRED = "TOKEN_EXPIRED"  # noqa: S105
     NOT_FOUND = "NOT_FOUND"
     EMAIL_TAKEN = "EMAIL_TAKEN"
@@ -56,6 +57,12 @@ class TooManyPages(CovenantError):
 
 class Unauthenticated(CovenantError):
     code = ErrorCode.UNAUTHENTICATED
+
+
+class InvalidCredentials(CovenantError):
+    """Wrong email or password. Deliberately identical for both, to prevent user enumeration."""
+
+    code = ErrorCode.INVALID_CREDENTIALS
 
 
 class TokenExpired(CovenantError):

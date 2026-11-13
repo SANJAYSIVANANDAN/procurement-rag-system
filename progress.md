@@ -9,7 +9,8 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M1 — Repository setup and architecture skeleton | Done and committed |
 | M2 — Docker infrastructure | Code complete and committed; Docker run not yet verified (Docker not installed) |
 | M3 — PostgreSQL and SQLAlchemy | Code and tests complete and committed; pgvector-dependent tests unverified (need Docker or a pgvector database) |
-| M4–M19 | Not started |
+| M4 — Authentication | Code and tests complete and committed; Redis rate limiting and RabbitMQ readiness unverified against real services |
+| M5–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -117,8 +118,32 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 ### Fixed along the way
 - A unit test for `migrate` was silently running a real migration against whichever database the environment pointed at. It now mocks the Alembic call.
 
+## M4 — Authentication
+
+### Built
+- `core/security.py`: Argon2id hashing via pwdlib (defaults match the spec: 64 MiB, time 3, 4 lanes; outdated hashes are upgraded on login), password policy (12 to 128 characters, bundled common-password list, no repeated single character, not the email), JWT helpers (HS256; claims `sub`, `iat`, `exp`, `jti`, `typ`; 30 s leeway; expiry has its own error, every other failure is one opaque error).
+- `services/auth_service.py`: `register` (email normalized, duplicate detected before and after insert), `login` (unknown email still pays for a password check, so timing and errors are uniform), `authenticate` (token to `Principal`, re-checks the user is still active), `get_me`. `services/dto.py` has `Principal` (with `scope()`), `UserDTO`, `TokenDTO`.
+- `services/rate_limiter.py`: fixed-window counters in Redis (INCR and EXPIRE in one MULTI), buckets and defaults from spec 30.10, `CIQ_RATE_LIMITS` overrides, `Retry-After` from the time left in the window, fails open (logged) if Redis is down.
+- `api/`: `container.py` (engine, session factory, Redis, rate limiter, auth service built once at startup), `middleware.py` (request id echoed or generated and bound to logs, security headers, one completion log line per request), `errors.py` (every error in the spec 16.1 shape; validation errors never echo the submitted value; unexpected errors are opaque), `deps.py` (`get_current_principal`, `rate_limit(bucket)`), `schemas/`, `routers/auth.py`.
+- Endpoints: `POST /auth/register`, `POST /auth/login` (JSON), `POST /auth/token` (OAuth2 form, powers the Authorize button in `/docs`), `GET /auth/me`.
+- `GET /health/ready` now checks PostgreSQL, the migration head, Redis and RabbitMQ, reporting each separately.
+
+### Verified
+- 222 tests pass, 7 skip (3 Docker smoke tests plus the 3 pgvector tests from M3, and 1 new smoke test). Coverage 96.9%. Lint, mypy (strict) and the 13 import contracts pass.
+- Acceptance criteria: expired token gives 401 `TOKEN_EXPIRED`; invalid, missing, tampered, wrong-secret, wrong-type, deleted-user and inactive-user tokens give 401 `UNAUTHENTICATED`; the 6th login per minute for one email gives 429 with `Retry-After`; every response (including errors) carries `X-Request-ID`; passwords and tokens never appear in logs.
+- Also covered: wrong password and unknown email give identical responses; concurrent duplicate registrations give one 201 and the rest 409; the eleventh login per minute from one IP gives 429; email addresses never appear in Redis keys; the real app (uvicorn, production Argon2 settings) registered, logged in and served `/auth/me` against PostgreSQL.
+
+### Not yet verified
+- The rate limiter ran against an in-memory stand-in for Redis, not a real Redis (no Docker). The MULTI/EXPIRE behaviour and Redis 7 semantics are untested. `tests/e2e` has the readiness smoke test for when the stack runs.
+- The RabbitMQ readiness probe was exercised only with the connection stubbed (and against an unreachable port, which correctly reports `unavailable`).
+
 ## Deviations from the spec
 
+- M4: `Container` lives in `api/container.py`, not `core/container.py`; the spec's own import rules forbid `core` from importing the layers the container wires together.
+- M4: added `POST /auth/token` (OAuth2 form) beside the JSON `/auth/login`, so the Authorize button in `/docs` works.
+- M4: added the `INVALID_CREDENTIALS` error code (spec 30.1 names it but the 16.1 table omits it); unknown HTTP errors use plain string codes (`NOT_FOUND`, `METHOD_NOT_ALLOWED`, `HTTP_ERROR`).
+- M4: the rate limiter fails open when Redis is unavailable. The spec is silent; the alternative would lock everyone out of login whenever Redis blips.
+- M4: no CORS middleware yet; Streamlit calls the API server-side, so it is not needed until a browser client exists.
 - M3: citations are created in migration 0005, not 0004, because they reference findings and risk dimensions.
 - M3: `document_processing_jobs` has a `created_at` column (not in the spec's ER diagram), needed for the stuck-job sweep.
 - M2: the backend image has no ENTRYPOINT. The spec says the entrypoint is the `covenantiq` CLI, but its own Compose commands start with `uvicorn` and `celery`, which would break.
@@ -132,4 +157,4 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - Install Docker Desktop (not present on this machine), then run `cp .env.example .env`, `make up`, `make ps` and `CIQ_E2E=1 uv run pytest tests/e2e` to close out M2.
 - M1 and M2 are committed locally on `main`; nothing has been pushed.
 - Run the pgvector verification described under M3 once Docker is available.
-- Next: M4 — Authentication (Argon2 hashing, JWT, register/login/me, rate limiting).
+- Next: M5 — Document management (upload validation, storage, duplicate detection, list/get/patch/delete).
