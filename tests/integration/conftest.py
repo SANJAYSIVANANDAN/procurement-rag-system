@@ -7,8 +7,9 @@ truncated after every test.
 
 import asyncio
 import os
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator, Sequence
 from typing import Any
+from uuid import UUID
 
 import pytest
 import pytest_asyncio
@@ -19,6 +20,8 @@ from sqlalchemy.pool import NullPool
 
 from covenantiq.core.config import get_settings
 from covenantiq.db.migrations import alembic_config, head_revision
+from covenantiq.db.repositories import chunks as chunk_repository
+from covenantiq.db.scope import OwnershipScope
 from covenantiq.db.session import create_session_factory
 from covenantiq.db.uow import UnitOfWork
 
@@ -109,3 +112,33 @@ def uow_factory(engine: AsyncEngine) -> Callable[[], UnitOfWork]:
 def require_pgvector(pgvector_installed: bool) -> None:
     if not pgvector_installed:
         pytest.skip("pgvector extension is not installed in the test database")
+
+
+@pytest.fixture(autouse=True)
+def vector_writes(
+    pgvector_installed: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:  # pragma: no cover - which branch runs depends on the database
+    if pgvector_installed:
+        return
+
+    async def set_embeddings(
+        self: chunk_repository.ChunkRepository,
+        scope: OwnershipScope,
+        batch: Sequence[tuple[UUID, Sequence[float]]],
+        embedding_model: str,
+    ) -> None:
+        for chunk_id, vector in batch:
+            await self.session.execute(
+                text(
+                    "UPDATE document_chunks SET embedding = CAST(:vector AS float4[]), "
+                    "embedding_model = :model WHERE id = :id AND owner_id = :owner"
+                ),
+                {
+                    "vector": list(vector),
+                    "model": embedding_model,
+                    "id": chunk_id,
+                    "owner": scope.owner_id,
+                },
+            )
+
+    monkeypatch.setattr(chunk_repository.ChunkRepository, "set_embeddings", set_embeddings)

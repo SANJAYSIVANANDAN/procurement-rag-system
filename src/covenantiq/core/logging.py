@@ -121,5 +121,10 @@ def bind_context(
     structlog.contextvars.bind_contextvars(**{k: v for k, v in fields.items() if v is not None})
 
 
+def current_request_id() -> str | None:
+    value = structlog.contextvars.get_contextvars().get("request_id")
+    return str(value) if value is not None else None
+
+
 def clear_context() -> None:
     structlog.contextvars.clear_contextvars()

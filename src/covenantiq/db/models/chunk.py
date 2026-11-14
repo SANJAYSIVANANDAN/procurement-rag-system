@@ -43,8 +43,8 @@ class DocumentChunk(Base, OwnedMixin):
     ordinal: Mapped[int]
     text: Mapped[str]
     token_count: Mapped[int]
-    page_start: Mapped[int]
-    page_end: Mapped[int]
+    page_start: Mapped[int | None]
+    page_end: Mapped[int | None]
     clause_types: Mapped[list[str]] = mapped_column(default=list, server_default=sql_text("'{}'"))
     embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM))
     embedding_model: Mapped[str | None]

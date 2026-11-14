@@ -132,3 +132,50 @@ async def test_embeddings_are_written_and_leave_the_pending_batch(
     async with uow_factory() as uow:
         remaining = await uow.chunks.pending_embedding_batch(alice, document.id, 10)
         assert [c.ordinal for c in remaining] == [2]
+
+
+async def test_refused_chunks_leave_the_pending_batch_and_are_counted(
+    uow_factory: UowFactory,
+) -> None:
+    alice, _bob, document = await seed(uow_factory)
+    async with uow_factory() as uow:
+        clause = make_clause(alice.owner_id, document.id, 0)
+        await uow.clauses.replace_for_document(alice, document.id, [clause])
+        chunks = [make_chunk(alice.owner_id, document.id, clause.id, n) for n in range(3)]
+        await uow.chunks.bulk_insert(alice, chunks)
+        await uow.commit()
+        refused_id = chunks[1].id
+
+    async with uow_factory() as uow:
+        assert await uow.chunks.embedding_counts(alice, document.id) == (3, 0, 0)
+        await uow.chunks.mark_embedding_error(alice, refused_id, "input refused " * 50)
+        await uow.commit()
+
+    async with uow_factory() as uow:
+        pending = await uow.chunks.pending_embedding_batch(alice, document.id, 10)
+        assert [c.ordinal for c in pending] == [0, 2]  # the refused one is not retried forever
+        assert await uow.chunks.embedding_counts(alice, document.id) == (3, 0, 1)
+
+
+async def test_clearing_embeddings_forgets_refusals_and_is_scoped(
+    uow_factory: UowFactory,
+) -> None:
+    alice, bob, document = await seed(uow_factory)
+    async with uow_factory() as uow:
+        clause = make_clause(alice.owner_id, document.id, 0)
+        await uow.clauses.replace_for_document(alice, document.id, [clause])
+        chunks = [make_chunk(alice.owner_id, document.id, clause.id, n) for n in range(2)]
+        await uow.chunks.bulk_insert(alice, chunks)
+        await uow.chunks.mark_embedding_error(alice, chunks[0].id, "refused")
+        await uow.commit()
+
+    async with uow_factory() as uow:
+        assert await uow.chunks.clear_embeddings(bob, document.id) == 0  # not bob's document
+        assert await uow.chunks.embedding_counts(alice, document.id) == (2, 0, 1)
+        assert await uow.chunks.clear_embeddings(alice, document.id) == 2
+        await uow.commit()
+
+    async with uow_factory() as uow:
+        assert await uow.chunks.embedding_counts(alice, document.id) == (2, 0, 0)
+        pending = await uow.chunks.pending_embedding_batch(alice, document.id, 10)
+        assert [c.ordinal for c in pending] == [0, 1]

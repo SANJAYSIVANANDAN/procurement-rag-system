@@ -27,8 +27,8 @@ class DocumentClause(Base, OwnedMixin):
     heading: Mapped[str | None]
     heading_path: Mapped[list[str]] = mapped_column(default=list, server_default=sql_text("'{}'"))
     clause_types: Mapped[list[str]] = mapped_column(default=list, server_default=sql_text("'{}'"))
-    page_start: Mapped[int]
-    page_end: Mapped[int]
+    page_start: Mapped[int | None]
+    page_end: Mapped[int | None]
     text: Mapped[str]
     has_table: Mapped[bool] = mapped_column(default=False, server_default=sql_text("false"))
     metadata_: Mapped[dict[str, Any]] = mapped_column(

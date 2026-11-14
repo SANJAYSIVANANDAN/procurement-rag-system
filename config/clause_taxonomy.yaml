@@ -1,0 +1,197 @@
+# Deterministic clause taxonomy (spec 18.6 step 2).
+#
+# Each type lists phrases matched, case-insensitively and on word boundaries, against a clause's
+# heading and the first 300 characters of its text. A clause can match several types. Types are
+# hints that boost retrieval and let analysis rules find candidate clauses; they never filter,
+# so a clause the taxonomy misses is still found by search. The slugs are the `clause_types`
+# referenced by the contract rules (config/rules).
+version: 1
+types:
+  limitation_of_liability:
+    - limitation of liability
+    - limitations of liability
+    - limit of liability
+    - liability cap
+    - aggregate liability
+    - total liability
+    - maximum liability
+    - liability shall not exceed
+    - liable for any amount
+  exclusion_of_damages:
+    - indirect damages
+    - consequential damages
+    - indirect or consequential
+    - loss of profit
+    - loss of profits
+    - special damages
+    - exclusion of liability
+  indemnification:
+    - indemnification
+    - indemnify
+    - indemnity
+    - hold harmless
+    - defend and indemnify
+  ip_indemnity:
+    - infringement claim
+    - infringes any
+    - infringement of intellectual property
+    - infringement indemnity
+    - indemnify.*infringement
+  termination_for_convenience:
+    - termination for convenience
+    - terminate for convenience
+    - terminate this agreement for convenience
+    - without cause
+    - for any reason or no reason
+  termination_for_cause:
+    - termination for cause
+    - material breach
+    - cure period
+    - remedied within
+    - terminate this agreement immediately
+  termination_assistance:
+    - return of data
+    - transition assistance
+    - exit assistance
+    - post-termination
+    - upon termination.*return
+    - deletion of customer data
+  renewal:
+    - renewal
+    - renews automatically
+    - automatically renew
+    - auto-renewal
+    - notice of non-renewal
+    - successive periods
+  term:
+    - initial term
+    - term of this agreement
+    - commencement date
+    - effective date
+  payment_terms:
+    - payment terms
+    - fees and payment
+    - invoices
+    - invoice
+    - payable within
+    - net 30
+    - net 60
+    - net 90
+    - payment of fees
+  price_changes:
+    - price increase
+    - price changes
+    - fee increase
+    - price adjustment
+    - escalation
+    - increase the fees
+  late_payment:
+    - late payment
+    - late fees
+    - interest on overdue
+    - overdue amounts
+    - default interest
+  ip_ownership:
+    - ownership of
+    - intellectual property rights
+    - work product
+    - deliverables
+    - work made for hire
+    - assigns all right
+    - license back
+  customer_data:
+    - customer data
+    - ownership of data
+    - client data
+    - data ownership
+  confidentiality:
+    - confidentiality
+    - confidential information
+    - non-disclosure
+    - nondisclosure
+  data_protection:
+    - data protection
+    - personal data
+    - gdpr
+    - data processing
+    - data processor
+    - controller
+    - privacy
+  breach_notification:
+    - personal data breach
+    - security incident
+    - notify the customer of
+    - notification of breach
+    - breach notification
+    - without undue delay
+  subprocessors:
+    - sub-processor
+    - subprocessor
+    - sub-processors
+    - subprocessors
+    - subcontract
+  security:
+    - information security
+    - security measures
+    - iso 27001
+    - soc 2
+    - security standards
+    - encryption
+    - penetration test
+  service_levels:
+    - service level
+    - service levels
+    - availability
+    - uptime
+    - sla
+    - response time
+  service_credits:
+    - service credit
+    - service credits
+    - sole and exclusive remedy
+    - credits for unavailability
+  governing_law:
+    - governing law
+    - governed by the laws
+    - jurisdiction
+    - courts of
+    - venue
+    - arbitration
+    - dispute resolution
+  assignment:
+    - assignment
+    - assign this agreement
+    - change of control
+    - novation
+  insurance:
+    - insurance
+    - professional indemnity
+    - public liability
+    - cyber insurance
+  force_majeure:
+    - force majeure
+    - events beyond
+    - acts of god
+    - beyond the reasonable control
+  audit_rights:
+    - audit
+    - inspection rights
+    - right to inspect
+    - records
+  warranty:
+    - warranty
+    - warranties
+    - represents and warrants
+    - disclaimer of warranties
+  notices:
+    - notices
+    - notice shall be given
+    - written notice
+  entire_agreement:
+    - entire agreement
+    - supersedes
+    - order of precedence
+  definitions:
+    - definitions
+    - interpretation
+    - means

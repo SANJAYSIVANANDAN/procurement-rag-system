@@ -3,7 +3,14 @@ from pathlib import Path
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    PositiveFloat,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from covenantiq.core.enums import Environment, LogFormat
@@ -12,6 +19,22 @@ _SECRETS_DIR = Path("/run/secrets")
 
 # Models whose output dimension is known; a mismatch with CIQ_EMBEDDING_DIM fails at startup.
 KNOWN_EMBEDDING_DIMS: dict[str, int] = {"voyage-law-2": 1024}
+
+# OpenAI models that can return shorter vectors on request (the `dimensions` parameter). The
+# value is the native size, the most that can be asked for. `document_chunks.embedding` is 1024
+# wide, so text-embedding-3-small is asked for 1024 of its 1536 dimensions.
+VOYAGE_RERANK_MODEL = "rerank-2.5"
+# The local reranker (Apache 2.0, English only, about 150M parameters). It runs in its own
+# process (the `reranker` Compose service), never inside the API or the workers.
+ETTIN_RERANK_MODEL = "cross-encoder/ettin-reranker-150m-v1"
+# Cohere's hosted reranker: the "fast" v5 model is built for low latency, which the 3 second
+# reranking budget needs; set CIQ_RERANK_MODEL=rerank-v5.0-pro for the highest quality.
+COHERE_RERANK_MODEL = "rerank-v5.0-fast"
+
+SHORTENABLE_EMBEDDING_MODELS: dict[str, int] = {
+    "text-embedding-3-small": 1536,
+    "text-embedding-3-large": 3072,
+}
 
 _WEAK_PASSWORDS = frozenset(
     {
@@ -75,11 +98,22 @@ class Settings(BaseSettings):
     embedding_model: str = "voyage-law-2"
     embedding_dim: PositiveInt = 1024
     embedding_batch_size: PositiveInt = 64
-    rerank_provider: Literal["voyage", "fake", "none"] = "voyage"
-    rerank_model: str = "rerank-2.5"
+    rerank_provider: Literal["voyage", "cohere", "cross_encoder", "fake", "none"] = "voyage"
+    rerank_model: str = VOYAGE_RERANK_MODEL
+    # cross_encoder: where the separate reranker process listens, and how long a caller waits
+    # before keeping the fused order instead (spec 19.8).
+    rerank_url: str = "http://reranker:8100"
+    rerank_timeout_seconds: PositiveFloat = 3.0
+    rerank_max_documents: PositiveInt = 100
     voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
+    cohere_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("CIQ_COHERE_API_KEY", "COHERE_API_KEY", "CO_API_KEY"),
+    )
     openai_compat_base_url: str | None = None
-    openai_compat_api_key: SecretStr | None = None
+    openai_compat_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("CIQ_OPENAI_COMPAT_API_KEY", "OPENAI_API_KEY")
+    )
 
     chunk_target_tokens: PositiveInt = 350
     parent_max_tokens: PositiveInt = 1500
@@ -96,9 +130,12 @@ class Settings(BaseSettings):
 
     analysis_max_concurrency: PositiveInt = 3
     docling_page_batch: PositiveInt = 50
+    clause_heading_depth: Annotated[int | None, Field(ge=1, le=3)] = None
     ruleset: str = "contract_baseline_v1"
     scoring_config: Path = Path("config/vendor/scoring_v1.yaml")
     rate_limits: dict[str, int] | None = None
+
+    sweep_interval_seconds: Annotated[int, Field(ge=0)] = 60
 
     offline: bool = False
 
@@ -109,7 +146,13 @@ class Settings(BaseSettings):
             return [part.strip() for part in value.split(",") if part.strip()]
         return value
 
-    @field_validator("anthropic_api_key", "voyage_api_key", "openai_compat_api_key", mode="before")
+    @field_validator(
+        "anthropic_api_key",
+        "voyage_api_key",
+        "openai_compat_api_key",
+        "cohere_api_key",
+        mode="before",
+    )
     @classmethod
     def _blank_key_is_unset(cls, value: object) -> object:
         # Compose passes unset keys through as empty strings.
@@ -126,6 +169,16 @@ class Settings(BaseSettings):
     def _resolve_and_validate(self) -> "Settings":
         if self.log_format is None:
             self.log_format = LogFormat.CONSOLE if self.env is Environment.DEV else LogFormat.JSON
+
+        # A model name left at the Voyage default (or blank, as Compose passes an unset variable)
+        # means "the default for the chosen provider".
+        if not self.rerank_model.strip() or self.rerank_model == VOYAGE_RERANK_MODEL:
+            if self.rerank_provider == "cross_encoder":
+                self.rerank_model = ETTIN_RERANK_MODEL
+            elif self.rerank_provider == "cohere":
+                self.rerank_model = COHERE_RERANK_MODEL
+            else:
+                self.rerank_model = VOYAGE_RERANK_MODEL
 
         if self.offline:
             self.llm_provider = "fake"
@@ -149,6 +202,8 @@ class Settings(BaseSettings):
             self.voyage_api_key is None
         ):
             problems.append("VOYAGE_API_KEY is required when a voyage provider is selected")
+        if self.rerank_provider == "cohere" and self.cohere_api_key is None:
+            problems.append("COHERE_API_KEY is required when CIQ_RERANK_PROVIDER=cohere")
         if self.embedding_provider == "openai_compat" and not (
             self.openai_compat_base_url and self.openai_compat_api_key
         ):
@@ -159,6 +214,12 @@ class Settings(BaseSettings):
         return problems
 
     def _embedding_dim_problems(self) -> list[str]:
+        native = SHORTENABLE_EMBEDDING_MODELS.get(self.embedding_model)
+        if native is not None and self.embedding_dim > native:
+            return [
+                f"CIQ_EMBEDDING_DIM={self.embedding_dim} but {self.embedding_model} "
+                f"produces at most {native} dimensions"
+            ]
         declared = KNOWN_EMBEDDING_DIMS.get(self.embedding_model)
         if declared is not None and declared != self.embedding_dim:
             return [

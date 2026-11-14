@@ -1,0 +1,44 @@
+# Retrieval and evidence tuning (PROJECT_SPEC.md section 19).
+#
+# These are INITIAL values, not measured optima: spec 19.10 says to calibrate them against the
+# evaluation dataset (milestone 14). The rerank-score thresholds in particular depend on which
+# reranker is configured: Cohere v5 scores are calibrated to [0, 1], while the local Ettin model's
+# raw scores are squashed with a sigmoid and saturate, so its thresholds need their own values.
+#
+# Settings that already exist as environment variables (CIQ_CONTEXT_MAX_TOKENS,
+# CIQ_PARENT_MAX_TOKENS, CIQ_EXACT_SCAN_THRESHOLD) override the matching values here.
+version: 1
+
+retrieval:
+  k_dense: 30                 # candidates from the vector search
+  k_lexical: 30               # candidates from full-text search
+  k_final: 8                  # chunks kept after reranking
+  rerank_candidates: 30       # fused candidates sent to the reranker
+  rrf_k: 60                   # reciprocal rank fusion constant
+  weight_dense: 1.0
+  weight_lexical: 1.0
+  clause_type_boost: 1.1      # multiplier for chunks whose clause type was asked for
+  ef_search: 100              # pgvector hnsw.ef_search
+  rerank_timeout_seconds: 3.0
+  rerank_doc_max_chars: 4000  # about 1,000 tokens
+  max_keywords: 12
+  query_embedding_cache_seconds: 86400   # 24 h
+  rerank_cache_seconds: 3600             # 1 h
+
+context:
+  max_tokens: 6000
+  parent_max_tokens: 1500
+
+evidence:
+  rerank_strong: 0.55         # top score at or above: strong candidate
+  rerank_moderate: 0.35       # between this and strong: moderate; below: weak
+  rerank_single_strong: 0.70  # one chunk this good is enough breadth
+  min_supporting_chunks: 2    # chunks above `rerank_moderate` needed for strong
+  keyword_coverage: 0.5       # share of key terms that must appear in the context
+  rrf_agreement_rank: 10      # reranker skipped: top result must be in both top-N lists
+
+citations:
+  quote_fuzzy_ratio: 90       # rapidfuzz partial_ratio for a quoted span
+  overlap_threshold: 0.35     # share of a sentence's content words found in its source
+  partial_unsupported_fraction: 0.30
+  quote_max_chars: 300

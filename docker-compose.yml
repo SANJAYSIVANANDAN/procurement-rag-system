@@ -12,9 +12,18 @@ x-backend-env: &backend-env
   CIQ_LLM_PROVIDER: ${CIQ_LLM_PROVIDER:-anthropic}
   ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
   CIQ_EMBEDDING_PROVIDER: ${CIQ_EMBEDDING_PROVIDER:-voyage}
+  CIQ_EMBEDDING_MODEL: ${CIQ_EMBEDDING_MODEL:-voyage-law-2}
+  CIQ_EMBEDDING_DIM: ${CIQ_EMBEDDING_DIM:-1024}
+  CIQ_OPENAI_COMPAT_BASE_URL: ${CIQ_OPENAI_COMPAT_BASE_URL:-}
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   CIQ_RERANK_PROVIDER: ${CIQ_RERANK_PROVIDER:-voyage}
+  CIQ_RERANK_MODEL: ${CIQ_RERANK_MODEL:-rerank-2.5}
+  COHERE_API_KEY: ${COHERE_API_KEY:-}
+  CIQ_RERANK_URL: ${CIQ_RERANK_URL:-http://reranker:8100}
+  CIQ_RERANK_TIMEOUT_SECONDS: ${CIQ_RERANK_TIMEOUT_SECONDS:-3}
   VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
   CIQ_UPLOAD_DIR: /data/uploads
+  CIQ_SWEEP_INTERVAL_SECONDS: ${CIQ_SWEEP_INTERVAL_SECONDS:-60}
   CIQ_LOG_FORMAT: json
 
 services:
@@ -62,7 +71,6 @@ services:
       RABBITMQ_DEFAULT_VHOST: covenantiq
     volumes:
       - ./docker/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/20-covenantiq.conf:ro
-      - ./docker/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
       - rabbitdata:/var/lib/rabbitmq
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
@@ -120,7 +128,7 @@ services:
       interval: 30s
       timeout: 15s
       retries: 5
-      start_period: 60s
+      start_period: 300s   # each child loads the Docling models at start-up
     stop_grace_period: 120s                      # let running tasks finish (acks_late covers the rest)
     restart: unless-stopped
     deploy:
@@ -147,6 +155,38 @@ services:
       start_period: 30s
     stop_grace_period: 60s
     restart: unless-stopped
+    networks: [backend]
+
+  # The reranker runs as its own process and container: the cross-encoder is CPU-heavy, so it has
+  # its own CPU and memory limit and never shares the API's or a worker's process. The API and the
+  # workers call it over HTTP and keep the fused order if it is down or slow, so nothing depends_on
+  # it. Used when CIQ_RERANK_PROVIDER=cross_encoder. Behind a profile so the default stack stays
+  # within the 8 GB laptop budget: start it with `docker compose --profile rerank up -d`.
+  # CPU: CIQ_RERANK_CPUS caps the container (Docker's CFS quota) and CIQ_RERANK_THREADS is how many
+  # threads PyTorch uses; keep them equal. Measured on a 16-CPU host: 4 -> 20.8 s for 30 passages,
+  # 8 -> 11.9 s, 12 -> 10.2 s, 16 -> 19.7 s (all cores oversubscribe the machine). 8 is the default.
+  reranker:
+    profiles: [rerank]
+    build: {context: ., dockerfile: docker/backend.Dockerfile, target: reranker}
+    image: ${CIQ_IMAGE_RERANKER:-covenantiq-reranker:local}
+    command: ["covenantiq", "rerank-serve"]
+    environment:
+      CIQ_RERANK_MODEL: cross-encoder/ettin-reranker-150m-v1   # the model baked into this image
+      CIQ_RERANK_THREADS: ${CIQ_RERANK_THREADS:-8}
+      CIQ_RERANK_MAX_TOKENS: ${CIQ_RERANK_MAX_TOKENS:-512}
+      CIQ_RERANK_BATCH_SIZE: ${CIQ_RERANK_BATCH_SIZE:-4}
+      OMP_NUM_THREADS: ${CIQ_RERANK_THREADS:-8}
+      CIQ_LOG_FORMAT: json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8100/health/ready',timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s    # loading the model
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: {cpus: "${CIQ_RERANK_CPUS:-8}", memory: 2g}
     networks: [backend]
 
   streamlit:

@@ -9,6 +9,7 @@ from covenantiq.core.errors import (
     CovenantError,
     DocumentNotReady,
     ErrorCode,
+    IngestionBacklog,
     NotFound,
     RateLimited,
     TokenExpired,
@@ -40,6 +41,10 @@ def build_app() -> FastAPI:
     @app.get("/limited")
     async def limited() -> None:
         raise RateLimited("Slow down.", retry_after=42)
+
+    @app.get("/backlog")
+    async def backlog() -> None:
+        raise IngestionBacklog("busy", retry_after=45)
 
     @app.get("/expired")
     async def expired() -> None:
@@ -117,6 +122,12 @@ class TestErrorFormat:
         assert response.status_code == 429
         assert response.headers["Retry-After"] == "42"
         assert response.json()["error"]["code"] == "RATE_LIMITED"
+
+    def test_ingestion_backlog_is_a_429_with_retry_after(self, client: TestClient) -> None:
+        response = client.get("/backlog")
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "45"
+        assert response.json()["error"]["code"] == "INGESTION_BACKLOG"
 
     @pytest.mark.parametrize("path", ["/expired", "/unauthenticated"])
     def test_401_challenges_with_bearer(self, client: TestClient, path: str) -> None:

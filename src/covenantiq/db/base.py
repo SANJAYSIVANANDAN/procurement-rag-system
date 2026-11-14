@@ -47,6 +47,10 @@ class Base(AsyncAttrs, DeclarativeBase):
 
 
 class TimestampMixin:
+    # Fetch server-generated values (created_at, and updated_at on every UPDATE) in the same
+    # statement; async code cannot lazy-load an expired attribute afterwards.
+    __mapper_args__ = {"eager_defaults": True}  # noqa: RUF012
+
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now())
 

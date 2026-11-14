@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from covenantiq.api.middleware import REQUEST_ID_HEADER
-from covenantiq.core.errors import CovenantError, ErrorCode, RateLimited
+from covenantiq.core.errors import CovenantError, ErrorCode
 from covenantiq.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -14,13 +14,15 @@ log = get_logger(__name__)
 STATUS_BY_CODE: dict[ErrorCode, int] = {
     ErrorCode.VALIDATION_ERROR: 400,
     ErrorCode.UNSUPPORTED_FILE_TYPE: 400,
-    ErrorCode.FILE_TOO_LARGE: 400,
+    ErrorCode.FILE_TOO_LARGE: 413,
     ErrorCode.TOO_MANY_PAGES: 400,
+    ErrorCode.ENCRYPTED_PDF: 400,
     ErrorCode.UNAUTHENTICATED: 401,
     ErrorCode.INVALID_CREDENTIALS: 401,
     ErrorCode.TOKEN_EXPIRED: 401,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.EMAIL_TAKEN: 409,
+    ErrorCode.CONFLICT: 409,
     ErrorCode.GENERATION_IN_PROGRESS: 409,
     ErrorCode.DOCUMENT_NOT_READY: 409,
     ErrorCode.ASSESSMENT_REQUIRED: 409,
@@ -35,7 +37,7 @@ STATUS_BY_CODE: dict[ErrorCode, int] = {
 }
 
 # Starlette's own errors (unknown route, wrong method, ...) get the same body shape.
-HTTP_ERROR_CODES = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
+HTTP_ERROR_CODES = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED", 413: "FILE_TOO_LARGE"}
 
 
 def _request_id(request: Request) -> str | None:
@@ -71,7 +73,8 @@ def error_response(
 
 async def handle_domain_error(request: Request, exc: Exception) -> JSONResponse:
     exc = cast(CovenantError, exc)
-    headers = {"Retry-After": str(exc.retry_after)} if isinstance(exc, RateLimited) else None
+    retry_after = getattr(exc, "retry_after", None)
+    headers = {"Retry-After": str(retry_after)} if retry_after is not None else None
     return error_response(
         request,
         status_code=STATUS_BY_CODE[exc.code],

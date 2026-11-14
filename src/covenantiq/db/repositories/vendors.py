@@ -2,7 +2,7 @@ from collections.abc import Sequence
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, tuple_
 
 from covenantiq.db.models import Vendor
 from covenantiq.db.repositories.base import Repository, ensure_owned, like_pattern
@@ -23,14 +23,26 @@ class VendorRepository(Repository):
         return (await self.session.execute(statement)).scalar_one_or_none()
 
     async def list(
-        self, scope: OwnershipScope, *, q: str | None = None, limit: int = 50, offset: int = 0
+        self,
+        scope: OwnershipScope,
+        *,
+        q: str | None = None,
+        limit: int = 50,
+        after: tuple[str, UUID] | None = None,
     ) -> Sequence[Vendor]:
+        """By name. `q` matches substrings and, through pg_trgm, near misses (typos).
+        `after` is the (normalized_name, id) of the last row already seen."""
         statement = scope.apply(select(Vendor), Vendor)
         if q:
-            statement = statement.where(Vendor.normalized_name.ilike(like_pattern(q), escape="\\"))
-        statement = (
-            statement.order_by(Vendor.normalized_name, Vendor.id).limit(limit).offset(offset)
-        )
+            statement = statement.where(
+                or_(
+                    Vendor.normalized_name.ilike(like_pattern(q), escape="\\"),
+                    Vendor.normalized_name.op("%")(q),
+                )
+            )
+        if after is not None:
+            statement = statement.where(tuple_(Vendor.normalized_name, Vendor.id) > tuple_(*after))
+        statement = statement.order_by(Vendor.normalized_name, Vendor.id).limit(limit)
         return (await self.session.execute(statement)).scalars().all()
 
     async def add(self, scope: OwnershipScope, vendor: Vendor) -> Vendor:

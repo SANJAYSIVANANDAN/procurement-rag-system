@@ -7,11 +7,13 @@ class ErrorCode(StrEnum):
     UNSUPPORTED_FILE_TYPE = "UNSUPPORTED_FILE_TYPE"
     FILE_TOO_LARGE = "FILE_TOO_LARGE"
     TOO_MANY_PAGES = "TOO_MANY_PAGES"
+    ENCRYPTED_PDF = "ENCRYPTED_PDF"
     UNAUTHENTICATED = "UNAUTHENTICATED"
     INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
     TOKEN_EXPIRED = "TOKEN_EXPIRED"  # noqa: S105
     NOT_FOUND = "NOT_FOUND"
     EMAIL_TAKEN = "EMAIL_TAKEN"
+    CONFLICT = "CONFLICT"
     GENERATION_IN_PROGRESS = "GENERATION_IN_PROGRESS"
     DOCUMENT_NOT_READY = "DOCUMENT_NOT_READY"
     ASSESSMENT_REQUIRED = "ASSESSMENT_REQUIRED"
@@ -39,6 +41,29 @@ class CovenantError(Exception):
         return {"code": self.code.value, "message": self.message, "details": self.details}
 
 
+class TransientError(CovenantError):
+    """A background task failed for a reason that may pass: the task is retried with backoff."""
+
+    code = ErrorCode.DEPENDENCY_UNAVAILABLE
+
+
+class PermanentTaskError(CovenantError):
+    """A background task cannot succeed however often it is retried. The job is marked failed
+    with `job_code` and the message is dead-lettered."""
+
+    code = ErrorCode.INTERNAL_ERROR
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        job_code: str = "PROCESSING_FAILED",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, details=details)
+        self.job_code = job_code
+
+
 class ValidationFailed(CovenantError):
     code = ErrorCode.VALIDATION_ERROR
 
@@ -53,6 +78,10 @@ class FileTooLarge(CovenantError):
 
 class TooManyPages(CovenantError):
     code = ErrorCode.TOO_MANY_PAGES
+
+
+class EncryptedPdf(CovenantError):
+    code = ErrorCode.ENCRYPTED_PDF
 
 
 class Unauthenticated(CovenantError):
@@ -77,6 +106,10 @@ class NotFound(CovenantError):
 
 class EmailTaken(CovenantError):
     code = ErrorCode.EMAIL_TAKEN
+
+
+class Conflict(CovenantError):
+    code = ErrorCode.CONFLICT
 
 
 class GenerationInProgress(CovenantError):
@@ -111,6 +144,16 @@ class RateLimited(CovenantError):
 
 class IngestionBacklog(CovenantError):
     code = ErrorCode.INGESTION_BACKLOG
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retry_after: int = 30,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, details=details)
+        self.retry_after = retry_after
 
 
 class TooManyActiveJobs(CovenantError):

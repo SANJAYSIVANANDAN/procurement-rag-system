@@ -23,7 +23,12 @@ def test_api_is_live() -> None:
 def test_api_is_ready_and_schema_is_at_head() -> None:
     response = httpx.get(f"{API_URL}/api/v1/health/ready", timeout=5)
     assert response.status_code == 200
-    assert response.json()["checks"] == {"database": "ok", "migrations": "ok"}
+    assert response.json()["checks"] == {
+        "database": "ok",
+        "migrations": "ok",
+        "redis": "ok",
+        "rabbitmq": "ok",
+    }
 
 
 def test_rabbitmq_accepts_connections() -> None:

@@ -26,6 +26,10 @@ services:
     volumes:
       - ./src:/app/src
 
+  reranker:
+    volumes:
+      - ./src:/app/src
+
   streamlit:
     command: ["streamlit", "run", "frontend/app.py", "--server.port", "8501",
               "--server.address", "0.0.0.0", "--server.runOnSave", "true"]
