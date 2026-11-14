@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from covenantiq.core.ids import uuid7
@@ -64,3 +64,14 @@ class VendorAssessmentRepository(Repository):
             VendorRiskAssessment,
         )
         return (await self.session.execute(statement)).scalars().all()
+
+    async def delete_for_job(self, scope: OwnershipScope, job_id: UUID) -> int:
+        """Drop the assessment a job stored (its dimensions and citations go with it), so that
+        storing it again after a crash leaves one."""
+        result = await self.session.execute(
+            scope.apply(
+                delete(VendorRiskAssessment).where(VendorRiskAssessment.analysis_job_id == job_id),
+                VendorRiskAssessment,
+            )
+        )
+        return int(result.rowcount)  # type: ignore[attr-defined]

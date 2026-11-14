@@ -1,0 +1,756 @@
+# Contract baseline rules (spec 20.2, 20.3). Validated at start-up by analysis/contract/rules_schema.py:
+# an invalid file stops the worker and the API rather than producing a silently thinner analysis.
+#
+# Patterns are single-quoted so backslashes are literal regex escapes. A heuristic can force a
+# status or raise a severity, or add a flag; it can never mark a clause acceptable. `clause_types`
+# must exist in config/clause_taxonomy.yaml. `compare` entries feed internal-contradiction
+# detection: the pattern's first group is the value, found across the sources retrieved for the
+# rule; two different values in different clauses become a candidate pair for a model to confirm.
+ruleset: contract_baseline_v1
+semver: 1.0.0
+
+rules:
+  - id: LIAB-001
+    version: 1
+    title: Limitation of liability
+    category: liability
+    applies_to: [all]
+    clause_types: [limitation_of_liability]
+    retrieval:
+      queries:
+        - limitation of liability aggregate cap total liability shall not exceed
+        - maximum liability fees paid twelve months
+      keywords: [limitation of liability, aggregate liability, shall not exceed, cap]
+    heuristics:
+      - id: UNLIMITED
+        pattern: '(?i)\b(unlimited liability|no limit(ation)? (on|of) liability)\b'
+        effect: {status: problematic, severity: critical}
+      - id: CARVE_OUT_DATA
+        pattern: '(?i)shall not apply to .{0,200}(data protection|confidentiality|security)'
+        effect: {flag: carve_out_data}
+    extract:
+      cap_basis: e.g. fees paid in 12 months, fixed amount
+      cap_multiple: number or null
+      carve_outs: list
+    assessment_questions:
+      - Is there an aggregate cap on the vendor's liability? What is the basis?
+      - Are there carve-outs that remove the cap for key risks (data, confidentiality, IP)?
+      - Is the cap mutual or one-sided?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request an explicit aggregate liability cap with defined carve-outs.
+      problematic: Negotiate a super-cap for data protection and confidentiality breaches.
+      ambiguous: Ask legal to clarify the basis and scope of the liability cap.
+
+  - id: LIAB-002
+    version: 1
+    title: Exclusion of indirect and consequential damages
+    category: liability
+    applies_to: [all]
+    clause_types: [exclusion_of_damages]
+    retrieval:
+      queries:
+        - exclusion of indirect consequential special damages loss of profits
+        - neither party shall be liable for indirect or consequential loss
+      keywords: [indirect, consequential, loss of profits, special damages]
+    heuristics:
+      - id: ONE_SIDED
+        pattern: '(?i)(customer|client) shall not be liable.{0,120}(indirect|consequential)(?!.{0,200}(vendor|supplier|provider))'
+        effect: {flag: one_sided_exclusion}
+    extract:
+      mutual: yes, no or unclear
+      exceptions: list
+    assessment_questions:
+      - Are indirect and consequential damages excluded, and for whom?
+      - Is the exclusion mutual, and what are the exceptions?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal whether to add a mutual exclusion of indirect and consequential damages.
+      problematic: Negotiate to make the exclusion mutual, with agreed exceptions.
+      ambiguous: Confirm which categories of loss the exclusion covers.
+
+  - id: IND-001
+    version: 1
+    title: Indemnification
+    category: indemnification
+    applies_to: [msa, saas, services, license]
+    clause_types: [indemnification]
+    retrieval:
+      queries:
+        - indemnify defend hold harmless third party claims
+        - indemnification obligations scope procedure
+      keywords: [indemnify, indemnification, hold harmless, defend]
+    heuristics:
+      - id: CUSTOMER_ONLY
+        pattern: '(?i)(customer|client) shall (defend, )?indemnify.{0,300}(?!.{0,300}(vendor|supplier|provider) shall)'
+        effect: {flag: customer_only_indemnity}
+    extract:
+      mutual: yes, no or unclear
+      covered_claims: list
+    assessment_questions:
+      - Who indemnifies whom, and for which kinds of claim?
+      - Is the indemnity mutual and does it have a defence and notice procedure?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal whether to request a mutual indemnification clause.
+      problematic: Negotiate a mutual indemnity with a clear notice and defence procedure.
+      ambiguous: Confirm the scope of indemnified claims and the claims procedure.
+
+  - id: IND-002
+    version: 1
+    title: Intellectual property infringement indemnity from the vendor
+    category: indemnification
+    applies_to: [saas, license, services]
+    clause_types: [ip_indemnity]
+    retrieval:
+      queries:
+        - vendor shall indemnify customer against claims that the services infringe intellectual property rights
+        - infringement claim indemnity remedies replace modify refund
+      keywords: [infringe, infringement, intellectual property, indemnify]
+    heuristics:
+      - id: NO_INFRINGEMENT_INDEMNITY
+        pattern: '(?i)no (warranty|indemnity) (of|against|for) (non-?infringement|infringement)'
+        effect: {status: problematic, severity: high}
+    extract:
+      remedies: list
+      exclusions: list
+    assessment_questions:
+      - Does the vendor indemnify the customer against third-party IP infringement claims?
+      - What remedies and exclusions apply?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request a vendor indemnity for third-party IP infringement claims.
+      problematic: Negotiate the removal of broad exclusions from the infringement indemnity.
+      ambiguous: Confirm the remedies available if the services are found to infringe.
+
+  - id: TERM-001
+    version: 1
+    title: Termination for convenience
+    category: termination
+    applies_to: [msa, saas, services]
+    clause_types: [termination_for_convenience]
+    retrieval:
+      queries:
+        - termination for convenience without cause notice period
+        - either party may terminate this agreement upon days written notice
+      keywords: [terminate, convenience, without cause, notice]
+    heuristics:
+      - id: VENDOR_ONLY
+        pattern: '(?i)(vendor|supplier|provider) may terminate .{0,80}(for convenience|without cause)'
+        effect: {flag: vendor_only_convenience}
+    extract:
+      notice_days: number or null
+      who_may_terminate: customer, vendor, both or neither
+      fees_on_termination: text or null
+    assessment_questions:
+      - Can the customer terminate without cause, and on what notice?
+      - Can the vendor terminate without cause, and are early-termination fees payable?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal whether the customer needs a right to terminate for convenience.
+      problematic: Negotiate a customer right to terminate for convenience without penalty.
+      ambiguous: Confirm the notice period and any fees on early termination.
+    compare:
+      - key: termination_notice_days
+        pattern: '(?i)(?:terminat\w+|notice).{0,120}?(\d{1,3})\s*(?:calendar\s+|business\s+)?days'
+        unit: days
+
+  - id: TERM-002
+    version: 1
+    title: Termination for cause and cure period
+    category: termination
+    applies_to: [all]
+    clause_types: [termination_for_cause]
+    retrieval:
+      queries:
+        - termination for material breach cure period days written notice
+        - terminate immediately if breach is not remedied within
+      keywords: [material breach, cure period, remedied, terminate]
+    heuristics:
+      - id: NO_CURE
+        pattern: '(?i)(terminate|termination).{0,120}(immediately|forthwith).{0,60}(without (a )?(cure|notice))'
+        effect: {flag: no_cure_period}
+    extract:
+      cure_period_days: number or null
+      mutual: yes, no or unclear
+    assessment_questions:
+      - Can each party terminate for material breach, and is there a cure period?
+      - How long is the cure period?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Request a mutual termination right for material breach with a cure period.
+      problematic: Negotiate a cure period for the customer before the vendor may terminate.
+      ambiguous: Confirm the length of the cure period and what counts as a material breach.
+    compare:
+      - key: cure_period_days
+        pattern: '(?i)(?:cure|remed\w+|rectif\w+).{0,100}?(\d{1,3})\s*(?:calendar\s+|business\s+)?days'
+        unit: days
+
+  - id: TERM-003
+    version: 1
+    title: Data return and transition assistance after termination
+    category: termination
+    applies_to: [saas, services]
+    clause_types: [termination_assistance]
+    retrieval:
+      queries:
+        - return of customer data upon termination transition assistance
+        - deletion of data after termination exit assistance export format
+      keywords: [return of data, transition, exit assistance, deletion, termination]
+    heuristics:
+      - id: NO_RETURN
+        pattern: '(?i)(vendor|supplier|provider) (shall|may) (delete|destroy).{0,80}(immediately|upon termination).{0,60}(without|no) (notice|obligation)'
+        effect: {flag: immediate_deletion}
+    extract:
+      return_window_days: number or null
+      export_format: text or null
+    assessment_questions:
+      - Is the customer's data returned or exportable after termination, and for how long?
+      - Is transition assistance available, and at what cost?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request data return and transition assistance obligations on termination.
+      problematic: Negotiate a defined data return window and export format.
+      ambiguous: Confirm how long data remains available and in what format.
+
+  - id: REN-001
+    version: 1
+    title: Renewal mechanics
+    category: renewal
+    applies_to: [msa, saas, license]
+    clause_types: [renewal, term]
+    retrieval:
+      queries:
+        - automatic renewal renewal term notice of non-renewal
+        - agreement renews automatically unless notice is given days before expiry
+      keywords: [renew, renewal, automatically, non-renewal, notice]
+    heuristics:
+      - id: AUTO_RENEW
+        pattern: '(?i)(automatically (renew|extend)|auto-?renew)'
+        effect: {flag: auto_renewal}
+    extract:
+      auto_renews: yes, no or unclear
+      notice_days: number or null
+      renewal_term: text or null
+    assessment_questions:
+      - Does the agreement renew automatically, and for how long?
+      - What notice is needed to prevent renewal?
+    severity_policy: {absent: info, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Confirm the term and whether the agreement renews.
+      problematic: Diarise the non-renewal notice date and negotiate a shorter notice window.
+      ambiguous: Confirm the renewal term and the notice needed to stop renewal.
+    compare:
+      - key: renewal_notice_days
+        pattern: '(?i)(?:non-?renewal|not to renew|prevent renewal).{0,120}?(\d{1,3})\s*(?:calendar\s+|business\s+)?days'
+        unit: days
+
+  - id: PAY-001
+    version: 1
+    title: Payment terms
+    category: payment
+    applies_to: [all]
+    excludes: [nda]
+    clause_types: [payment_terms]
+    retrieval:
+      queries:
+        - payment terms invoices due within days of receipt currency
+        - fees payable net days invoicing
+      keywords: [payment, invoice, due, days, currency]
+    heuristics:
+      - id: SHORT_PAYMENT
+        pattern: '(?i)(payable|due|pay).{0,60}within (\d|1[0-4]) (calendar |business )?days'
+        effect: {flag: short_payment_window}
+    extract:
+      payment_days: number or null
+      currency: text or null
+    assessment_questions:
+      - When are invoices due and in what currency?
+      - Are there disputed-invoice provisions?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask finance to confirm payment terms before signing.
+      problematic: Negotiate longer payment terms and a right to dispute invoices.
+      ambiguous: Confirm the payment due date and currency.
+    compare:
+      - key: payment_days
+        pattern: '(?i)(?:payable|due|pay|net|payment).{0,80}?(\d{1,3})\s*(?:calendar\s+|business\s+)?days'
+        unit: days
+
+  - id: PAY-002
+    version: 1
+    title: Price changes and escalation
+    category: payment
+    applies_to: [msa, saas, license]
+    clause_types: [price_changes]
+    retrieval:
+      queries:
+        - price increase escalation annual adjustment CPI
+        - vendor may change fees upon notice
+      keywords: [price increase, escalation, adjustment, CPI, fees]
+    heuristics:
+      - id: UNILATERAL_PRICE
+        pattern: '(?i)(vendor|supplier|provider) may (increase|change|adjust) (the )?(fees|prices|charges).{0,80}(at any time|upon notice|in its sole discretion)'
+        effect: {status: problematic, severity: high}
+    extract:
+      cap_percent: number or null
+      notice_days: number or null
+    assessment_questions:
+      - Can the vendor change prices, how often and by how much?
+      - Is there a cap on increases and a notice period?
+    severity_policy: {absent: info, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Confirm that prices are fixed for the term.
+      problematic: Negotiate a cap on annual increases and advance notice.
+      ambiguous: Confirm how and when prices may change.
+
+  - id: PAY-003
+    version: 1
+    title: Late payment penalties and interest
+    category: payment
+    applies_to: [all]
+    excludes: [nda]
+    clause_types: [late_payment]
+    retrieval:
+      queries:
+        - late payment interest per month overdue amounts suspension
+        - interest on overdue invoices
+      keywords: [late payment, interest, overdue, suspension]
+    heuristics:
+      - id: HIGH_INTEREST
+        pattern: '(?i)(\b(1[5-9]|[2-9]\d)(\.\d+)?\s*%\s*(per|a|each)\s*(annum|year))|(\b([2-9]|\d{2})(\.\d+)?\s*%\s*(per|a|each)\s*month)'
+        effect: {flag: high_interest, severity: medium}
+    extract:
+      interest_rate: text or null
+      suspension_right: yes, no or unclear
+    assessment_questions:
+      - What interest or penalty applies to late payment?
+      - May the vendor suspend the service for non-payment, and on what notice?
+    severity_policy: {absent: info, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Confirm whether late payment charges can apply.
+      problematic: Negotiate a lower interest rate and a notice period before suspension.
+      ambiguous: Confirm the interest rate and suspension conditions.
+
+  - id: IP-001
+    version: 1
+    title: Ownership of deliverables and work product
+    category: intellectual_property
+    applies_to: [services, sow, msa]
+    clause_types: [ip_ownership]
+    retrieval:
+      queries:
+        - ownership of deliverables work product intellectual property assignment
+        - vendor retains all rights in pre-existing materials license to customer
+      keywords: [ownership, deliverables, work product, assign, intellectual property]
+    heuristics:
+      - id: VENDOR_OWNS
+        pattern: '(?i)(vendor|supplier|provider) (shall )?(retain|own)s? all (right|title).{0,120}(deliverables|work product|developments)'
+        effect: {status: problematic, severity: high}
+    extract:
+      owner_of_deliverables: customer, vendor, joint or unclear
+      license_granted: text or null
+    assessment_questions:
+      - Who owns the deliverables and work product?
+      - If the vendor owns them, what licence does the customer receive?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request a clause that states who owns deliverables and work product.
+      problematic: Negotiate customer ownership of bespoke deliverables, or a perpetual licence.
+      ambiguous: Confirm ownership of deliverables and the licence granted.
+
+  - id: IP-002
+    version: 1
+    title: Customer data ownership
+    category: intellectual_property
+    applies_to: [saas, services]
+    clause_types: [customer_data]
+    retrieval:
+      queries:
+        - customer data remains the property of the customer
+        - vendor may use customer data aggregated anonymised for its own purposes
+      keywords: [customer data, ownership, property of the customer, aggregated, anonymised]
+    heuristics:
+      - id: VENDOR_USE
+        pattern: '(?i)(vendor|supplier|provider) may use.{0,60}customer data.{0,120}(any purpose|its own purposes|improve)'
+        effect: {status: problematic, severity: high}
+    extract:
+      owner: customer, vendor or unclear
+      vendor_use_rights: text or null
+    assessment_questions:
+      - Does the customer own its data?
+      - Can the vendor use customer data for its own purposes, including training or analytics?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request an explicit statement that the customer owns its data.
+      problematic: Negotiate limits on the vendor's use of customer data.
+      ambiguous: Confirm what the vendor may do with customer data.
+
+  - id: CONF-001
+    version: 1
+    title: Confidentiality
+    category: confidentiality
+    applies_to: [all]
+    clause_types: [confidentiality]
+    retrieval:
+      queries:
+        - confidential information obligations non-disclosure exceptions duration
+        - each party shall keep confidential information confidential
+      keywords: [confidential, non-disclosure, disclose, exceptions]
+    heuristics:
+      - id: ONE_WAY
+        pattern: '(?i)(customer|client) shall (keep|hold|maintain).{0,40}confidential(?!.{0,300}(vendor|supplier|provider) shall)'
+        effect: {flag: one_way_confidentiality}
+    extract:
+      mutual: yes, no or unclear
+      duration: text or null
+    assessment_questions:
+      - Is there a confidentiality obligation, and is it mutual?
+      - How long does it last and what are the exceptions?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request a mutual confidentiality clause.
+      problematic: Negotiate mutual confidentiality obligations of similar scope and duration.
+      ambiguous: Confirm the duration and the exceptions to confidentiality.
+
+  - id: DP-001
+    version: 1
+    title: Data protection and data processing agreement
+    category: data_protection
+    applies_to: [saas, services, dpa]
+    clause_types: [data_protection]
+    retrieval:
+      queries:
+        - data protection personal data processing GDPR data processing agreement
+        - vendor shall process personal data only on documented instructions
+      keywords: [personal data, GDPR, data protection, processor, processing]
+    heuristics:
+      - id: NO_DPA
+        pattern: '(?i)no (personal )?data (processing|protection) (terms|obligations|agreement)'
+        effect: {status: problematic, severity: high}
+    extract:
+      dpa_referenced: yes, no or unclear
+      instructions_only: yes, no or unclear
+    assessment_questions:
+      - Does the contract address personal data processing or reference a DPA?
+      - Does the vendor process personal data only on the customer's instructions?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Ask legal and the privacy team whether a data processing agreement is required.
+      problematic: Negotiate data processing terms that meet applicable data protection law.
+      ambiguous: Confirm whether a separate data processing agreement applies.
+
+  - id: DP-002
+    version: 1
+    title: Breach notification timeline
+    category: data_protection
+    applies_to: [saas, services, dpa]
+    clause_types: [breach_notification]
+    retrieval:
+      queries:
+        - notify customer of personal data breach within hours
+        - security incident notification timeline without undue delay
+      keywords: [breach, notify, incident, hours, without undue delay]
+    heuristics:
+      - id: SLOW_NOTICE
+        pattern: '(?i)notify.{0,80}(within|no later than) (\d{3,}) hours'
+        effect: {flag: slow_breach_notice}
+    extract:
+      notification_hours: number or null
+    assessment_questions:
+      - Must the vendor notify the customer of a data breach, and within what time?
+      - What must the notice contain?
+    severity_policy: {absent: high, problematic_default: high, ambiguous: medium}
+    recommended_actions:
+      absent: Request a breach notification obligation with a defined timeline.
+      problematic: Negotiate a shorter breach notification period.
+      ambiguous: Replace undefined timing such as "promptly" with a number of hours.
+    compare:
+      - key: breach_notification_hours
+        pattern: '(?i)(?:breach|incident|notif\w+).{0,100}?(\d{1,3})\s*(?:hours|hrs)'
+        unit: hours
+
+  - id: DP-003
+    version: 1
+    title: Sub-processor controls
+    category: data_protection
+    applies_to: [saas, dpa]
+    clause_types: [subprocessors]
+    retrieval:
+      queries:
+        - sub-processors engage objection right notice of changes
+        - vendor may appoint subprocessors flow-down obligations
+      keywords: [sub-processor, subprocessor, engage, object, flow down]
+    heuristics:
+      - id: FREE_SUBPROCESSING
+        pattern: '(?i)(vendor|supplier|provider) may (engage|appoint|use).{0,60}sub-?processors? (at any time|without (prior )?(notice|consent))'
+        effect: {flag: unrestricted_subprocessors}
+    extract:
+      objection_right: yes, no or unclear
+      notice_days: number or null
+    assessment_questions:
+      - Is the customer told about, and able to object to, new sub-processors?
+      - Are the vendor's obligations flowed down to sub-processors?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Request notice of, and a right to object to, new sub-processors.
+      problematic: Negotiate prior notice and an objection right for sub-processors.
+      ambiguous: Confirm how sub-processors are approved and how changes are notified.
+
+  - id: SEC-001
+    version: 1
+    title: Security obligations and standards
+    category: security
+    applies_to: [saas, services]
+    clause_types: [security]
+    retrieval:
+      queries:
+        - information security measures ISO 27001 SOC 2 certification
+        - vendor shall maintain appropriate technical and organisational security measures
+      keywords: [security, ISO 27001, SOC 2, encryption, safeguards]
+    heuristics:
+      - id: BEST_EFFORTS_ONLY
+        pattern: '(?i)(commercially reasonable|reasonable) (efforts|measures).{0,80}security'
+        effect: {flag: vague_security_standard}
+    extract:
+      standards: list
+      audit_reports: text or null
+    assessment_questions:
+      - Does the vendor commit to specific security standards or certifications?
+      - Are security measures defined or only described as "reasonable"?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Request security obligations tied to a recognised standard.
+      problematic: Negotiate specific security standards and evidence of certification.
+      ambiguous: Replace general wording with named standards or controls.
+
+  - id: SLA-001
+    version: 1
+    title: Service levels
+    category: sla
+    applies_to: [saas]
+    clause_types: [service_levels]
+    retrieval:
+      queries:
+        - service level agreement availability uptime percentage measured monthly
+        - service availability commitment maintenance windows
+      keywords: [service level, availability, uptime, percent, monthly]
+    heuristics:
+      - id: LOW_UPTIME
+        pattern: '(?i)\b(9[0-8](\.\d+)?|[1-8]\d(\.\d+)?)\s*%\s*(uptime|availability)'
+        effect: {flag: low_uptime_commitment}
+    extract:
+      availability_percent: number or null
+      measurement_period: text or null
+    assessment_questions:
+      - Is an availability commitment given, and at what percentage?
+      - How is it measured and what is excluded?
+    severity_policy: {absent: medium, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Request a service level commitment with a measurable availability target.
+      problematic: Negotiate a higher availability target and narrower exclusions.
+      ambiguous: Confirm how availability is measured and what is excluded.
+
+  - id: SLA-002
+    version: 1
+    title: Service credits and remedies
+    category: sla
+    applies_to: [saas]
+    clause_types: [service_credits]
+    retrieval:
+      queries:
+        - service credits remedy for failure to meet service levels sole and exclusive remedy
+        - chronic failure right to terminate service credit percentage
+      keywords: [service credit, remedy, sole and exclusive, chronic failure]
+    heuristics:
+      - id: SOLE_REMEDY
+        pattern: '(?i)service credits? (are|is|shall be) (the )?(sole|exclusive)'
+        effect: {flag: credits_sole_remedy}
+    extract:
+      credit_percent: text or null
+      termination_right: yes, no or unclear
+    assessment_questions:
+      - Do service credits apply when service levels are missed?
+      - Are credits the sole remedy, and can the customer terminate for chronic failure?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask whether service credits should accompany the service levels.
+      problematic: Negotiate a termination right for repeated service level failures.
+      ambiguous: Confirm the credit amounts and whether they are the sole remedy.
+
+  - id: GOV-001
+    version: 1
+    title: Governing law and jurisdiction
+    category: dispute_resolution
+    applies_to: [all]
+    clause_types: [governing_law]
+    retrieval:
+      queries:
+        - governing law jurisdiction courts laws of the state of
+        - disputes arbitration venue exclusive jurisdiction
+      keywords: [governing law, jurisdiction, courts, arbitration, venue]
+    heuristics:
+      - id: FOREIGN_EXCLUSIVE
+        pattern: '(?i)exclusive jurisdiction of the courts of'
+        effect: {flag: exclusive_jurisdiction}
+    extract:
+      governing_law: text or null
+      forum: text or null
+    assessment_questions:
+      - Which law governs the contract and where are disputes heard?
+      - Is arbitration or court litigation required?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Add governing law and a dispute forum.
+      problematic: Ask legal whether the chosen law and forum are acceptable.
+      ambiguous: Confirm which law and forum apply.
+    compare:
+      - key: governing_law
+        pattern: '(?i)governed by (?:and (?:construed|interpreted) in accordance with )?the laws? of (?:the )?([A-Z][A-Za-z .&-]{2,40}?)(?=[,.;]| without| excluding| and (?:shall|the|any|each|construed))'
+        unit: text
+
+  - id: ASG-001
+    version: 1
+    title: Assignment and change of control
+    category: assignment
+    applies_to: [msa, saas, license]
+    clause_types: [assignment]
+    retrieval:
+      queries:
+        - assignment of this agreement consent change of control
+        - neither party may assign without prior written consent
+      keywords: [assign, assignment, change of control, consent]
+    heuristics:
+      - id: VENDOR_FREE_ASSIGN
+        pattern: '(?i)(vendor|supplier|provider) may assign.{0,80}(without (the )?(customer|client)(.s)? (prior )?(consent|approval))'
+        effect: {flag: vendor_free_assignment}
+    extract:
+      mutual: yes, no or unclear
+      change_of_control: text or null
+    assessment_questions:
+      - May either party assign the agreement without consent?
+      - Is there a change-of-control provision?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal whether an assignment restriction is needed.
+      problematic: Negotiate customer consent for assignment, or a termination right on change of control.
+      ambiguous: Confirm who may assign and on what conditions.
+
+  - id: INS-001
+    version: 1
+    title: Insurance requirements
+    category: insurance
+    applies_to: [services, msa]
+    clause_types: [insurance]
+    retrieval:
+      queries:
+        - vendor shall maintain insurance coverage professional indemnity cyber liability
+        - certificate of insurance minimum limits per claim
+      keywords: [insurance, coverage, professional indemnity, cyber, certificate]
+    heuristics: []
+    extract:
+      coverage_types: list
+      minimum_limits: text or null
+    assessment_questions:
+      - Must the vendor carry insurance, and of what kinds and limits?
+      - Can the customer ask for evidence of cover?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal and risk whether the vendor should be required to carry insurance.
+      problematic: Negotiate higher minimum limits or additional cover types.
+      ambiguous: Confirm the types and amounts of insurance required.
+
+  - id: FM-001
+    version: 1
+    title: Force majeure
+    category: general
+    applies_to: [all]
+    excludes: [nda]
+    clause_types: [force_majeure]
+    retrieval:
+      queries:
+        - force majeure events beyond reasonable control suspension termination
+        - force majeure does not excuse payment obligations
+      keywords: [force majeure, beyond reasonable control, acts of god, suspension]
+    heuristics:
+      - id: BROAD_FM
+        pattern: '(?i)force majeure.{0,200}(labou?r (dispute|shortage)|supplier (failure|default)|subcontractor)'
+        effect: {flag: broad_force_majeure}
+    extract:
+      termination_after_days: number or null
+      covers_subcontractors: yes, no or unclear
+    assessment_questions:
+      - What events are force majeure, and what relief do they give?
+      - Can the customer terminate after a prolonged force majeure event?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask legal whether a force majeure clause is needed.
+      problematic: Negotiate narrower force majeure events and a termination right.
+      ambiguous: Confirm the listed events and the effect on obligations.
+
+  - id: AUD-001
+    version: 1
+    title: Audit rights
+    category: compliance
+    applies_to: [saas, services, dpa]
+    clause_types: [audit_rights]
+    retrieval:
+      queries:
+        - customer audit rights inspect records security compliance
+        - vendor shall allow audits upon reasonable notice
+      keywords: [audit, inspect, records, compliance, notice]
+    heuristics:
+      - id: NO_AUDIT
+        pattern: '(?i)(no|not) (right|entitled) to audit'
+        effect: {status: problematic, severity: medium}
+    extract:
+      frequency: text or null
+      notice_days: number or null
+    assessment_questions:
+      - Does the customer have a right to audit the vendor or receive audit reports?
+      - What limits apply to frequency, notice and cost?
+    severity_policy: {absent: low, problematic_default: medium, ambiguous: low}
+    recommended_actions:
+      absent: Ask whether audit rights or audit reports are needed.
+      problematic: Negotiate a right to audit, or to receive independent audit reports.
+      ambiguous: Confirm the frequency, notice and cost of audits.
+
+# Provisions that are unusual enough to flag wherever they appear (spec 20.6). Found by scanning
+# every chunk of the document, not just retrieved candidates. A hit becomes a finding with
+# rule_id UNUSUAL-<id>; the pattern is the evidence.
+unusual:
+  - id: EXCLUSIVITY
+    title: Exclusivity commitment
+    category: general
+    pattern: '(?i)\b(exclusive (supplier|provider|vendor|dealing)|shall (purchase|obtain) (all|exclusively)|sole and exclusive source)\b'
+    severity: medium
+    explanation: The document appears to commit one party to exclusivity, which limits the ability to use other suppliers.
+    recommended_action: Ask legal to review the exclusivity commitment and its duration.
+  - id: UNILATERAL_AMENDMENT
+    title: Unilateral amendment right
+    category: general
+    pattern: '(?i)(may|reserves? the right to) (amend|modify|change|update) (these terms|this agreement|the terms).{0,80}(at any time|from time to time|in its (sole )?discretion|without (prior )?notice)'
+    severity: high
+    explanation: One party may change the terms without the other's agreement.
+    recommended_action: Negotiate that amendments require written agreement or advance notice with a right to terminate.
+  - id: NON_SOLICIT
+    title: Non-solicitation restriction
+    category: general
+    pattern: '(?i)((shall|will) not|agrees? not to|neither party (shall|will)).{0,60}(solicit|hire|employ|recruit).{0,80}(employees|personnel|staff)'
+    severity: low
+    explanation: A non-solicitation restriction on hiring the other party's people appears in the document.
+    recommended_action: Ask legal to confirm the scope and duration of the non-solicitation restriction.
+  - id: LIQUIDATED_DAMAGES
+    title: Liquidated damages
+    category: liability
+    pattern: '(?i)\bliquidated damages\b'
+    severity: medium
+    explanation: Fixed damages amounts are set for specified breaches.
+    recommended_action: Ask legal to check that the amounts are proportionate and who bears them.
+  - id: MOST_FAVOURED_CUSTOMER
+    title: Most-favoured-customer clause
+    category: payment
+    pattern: '(?i)most[- ]favou?red[- ](customer|nation|pricing)'
+    severity: low
+    explanation: A most-favoured-customer pricing commitment appears in the document.
+    recommended_action: Ask commercial and legal whether the commitment is intended and enforceable.

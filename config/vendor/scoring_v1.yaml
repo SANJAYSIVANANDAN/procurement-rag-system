@@ -1,0 +1,36 @@
+# Vendor scoring configuration (spec 21.3). The version is stamped on every assessment, which makes
+# a historical score reproducible. Validated at start-up (weights must sum to 1, overrides must name
+# real signals).
+version: vendor_scoring_v1@1.0.0
+
+dimension_weights:
+  legal: 0.25
+  data_security: 0.25
+  operational: 0.20
+  financial_commercial: 0.15
+  compliance: 0.10
+  dependency: 0.05
+
+signal_risk:                 # risk per status, 0 to 100 (higher is riskier)
+  favorable: 10
+  ambiguous: 50
+  unfavorable: {low: 30, medium: 55, high: 80, critical: 100}
+
+absent_policy:               # absence is a gap, not a score, unless named here
+  default: gap
+  overrides:
+    LEG-LIAB-CAP: {treat_as: unfavorable, severity: high, rationale: No cap implies uncapped exposure}
+    DS-BREACH-NOTICE: {treat_as: unfavorable, severity: high, rationale: No notification duty}
+    DEP-EXIT: {treat_as: unfavorable, severity: medium, rationale: No exit assistance}
+
+min_dimension_coverage: 0.5
+provisional_completeness_threshold: 0.6
+min_assessed_dimensions: 4   # fewer assessed dimensions than this makes an assessment provisional
+
+# Upper bounds, exclusive: a score below `low` is low, below `medium` is medium, below `high` is
+# high, anything else is critical.
+severity_bands: {low: 25, medium: 50, high: 75}
+
+comparison:
+  min_coverage_to_compare: 0.6
+  min_comparable_dimensions_to_rank: 4

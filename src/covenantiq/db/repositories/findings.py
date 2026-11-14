@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from covenantiq.core.enums import JobStatus
 from covenantiq.db.models import AnalysisJob, ContractFinding
@@ -43,3 +43,29 @@ class FindingRepository(Repository):
         if job_id is None:
             return []
         return await self.for_job(scope, job_id)
+
+    async def delete_for_job(self, scope: OwnershipScope, job_id: UUID) -> int:
+        """Drop a job's findings (their citations go with them). Persisting is delete-then-insert,
+        so running it twice leaves one set."""
+        result = await self.session.execute(
+            scope.apply(
+                delete(ContractFinding).where(ContractFinding.analysis_job_id == job_id),
+                ContractFinding,
+            )
+        )
+        return int(result.rowcount)  # type: ignore[attr-defined]
+
+    async def latest_succeeded_job(
+        self, scope: OwnershipScope, document_id: UUID
+    ) -> AnalysisJob | None:
+        statement = scope.apply(
+            select(AnalysisJob)
+            .where(
+                AnalysisJob.document_id == document_id,
+                AnalysisJob.status == JobStatus.SUCCEEDED,
+            )
+            .order_by(AnalysisJob.created_at.desc(), AnalysisJob.id.desc())
+            .limit(1),
+            AnalysisJob,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()

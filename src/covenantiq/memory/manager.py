@@ -73,6 +73,10 @@ class MemoryManager:
         for provider in self._extras:
             await provider.record_turn(scope, conversation_id, turn)
 
+    async def invalidate(self, scope: OwnershipScope, conversation_id: UUID) -> None:
+        """Drop the session from Redis; the next load rebuilds it from PostgreSQL."""
+        await self._session.invalidate(scope, conversation_id)
+
     # ---- summarising ------------------------------------------------------------------------
 
     def _schedule(

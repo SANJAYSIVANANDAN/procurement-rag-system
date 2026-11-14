@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 
 from covenantiq.ai.llm.base import LLMUnavailable
 from covenantiq.core import redis_keys
+from covenantiq.core.enums import MessageStatus
 from covenantiq.memory import CompletedTurn, SessionTurn
 from tests.integration.memory.helpers import (
     Memory,
@@ -303,6 +304,66 @@ class TestRebuildTriggers:
             redis_keys.session_window(redis_env, scope.owner_id, conversation), 0, -1
         )
         assert len(window) == 6  # all three exchanges, not just the last one
+
+
+class TestOnlyFinishedExchangesAreMemory:
+    """Found in milestone 11, when a question was first stored before its reply: a rebuild during
+    the reply put the question in the window, and recording the finished turn added it again."""
+
+    async def test_a_question_whose_reply_is_still_being_written_is_not_in_a_rebuilt_window(
+        self, uow_factory: UowFactory, memory: Memory
+    ) -> None:
+        scope = await new_user(uow_factory)
+        conversation = await new_conversation(uow_factory, scope)
+        await converse(uow_factory, memory, scope, conversation, PAIRS[:1])
+        await memory.provider.invalidate(scope, conversation)
+        await exchange(uow_factory, scope, conversation, "In flight?", "", complete=False)
+
+        loaded = await memory.provider.load_session(
+            scope, await state_of(memory, scope, conversation)
+        )
+
+        assert texts(loaded.context.recent_turns) == list(PAIRS[0])
+
+    async def test_recording_the_finished_turn_after_such_a_rebuild_does_not_duplicate_it(
+        self, uow_factory: UowFactory, memory: Memory
+    ) -> None:
+        scope = await new_user(uow_factory)
+        conversation = await new_conversation(uow_factory, scope)
+        pending = await exchange(uow_factory, scope, conversation, "First?", "A1.", complete=False)
+        await memory.manager.load(scope, await state_of(memory, scope, conversation), "First?")
+        async with uow_factory() as uow:  # the reply completes, then is recorded (as finalize does)
+            reply = (await uow.messages.recent(scope, conversation, 10))[-1]
+            await uow.messages.complete(
+                scope, reply.id, content="A1.", status=MessageStatus.COMPLETED
+            )
+            await uow.commit()
+        await memory.manager.record_turn(scope, conversation, pending)
+
+        loaded = await memory.manager.load(scope, await state_of(memory, scope, conversation))
+
+        assert texts(loaded.recent_turns) == ["First?", "A1."]
+
+    async def test_a_failed_exchange_is_not_remembered_but_later_ones_are(
+        self, uow_factory: UowFactory, memory: Memory
+    ) -> None:
+        scope = await new_user(uow_factory)
+        conversation = await new_conversation(uow_factory, scope)
+        await exchange(uow_factory, scope, conversation, "Fails?", "", complete=False)
+        async with uow_factory() as uow:
+            reply = (await uow.messages.recent(scope, conversation, 10))[-1]
+            await uow.messages.complete(
+                scope, reply.id, content="partial", status=MessageStatus.FAILED
+            )
+            await uow.commit()
+        await converse(uow_factory, memory, scope, conversation, PAIRS[:1])
+        await memory.provider.invalidate(scope, conversation)
+
+        loaded = await memory.provider.load_session(
+            scope, await state_of(memory, scope, conversation)
+        )
+
+        assert texts(loaded.context.recent_turns) == list(PAIRS[0])
 
 
 class TestOverflowAndSummary:

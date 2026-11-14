@@ -47,6 +47,32 @@ class AnalysisJobRepository(Repository):
         )
         return (await self.session.execute(statement)).scalar_one_or_none()
 
+    async def active_for_document(
+        self, scope: OwnershipScope, document_id: UUID, job_type: AnalysisJobType
+    ) -> AnalysisJob | None:
+        """The queued or running job of this type for the document, if there is one."""
+        statement = scope.apply(
+            select(AnalysisJob)
+            .where(
+                AnalysisJob.document_id == document_id,
+                AnalysisJob.job_type == job_type,
+                AnalysisJob.status.in_(ACTIVE_STATUSES),
+            )
+            .order_by(AnalysisJob.created_at.desc())
+            .limit(1),
+            AnalysisJob,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def count_for_document(self, scope: OwnershipScope, document_id: UUID) -> int:
+        statement = scope.apply(
+            select(func.count())
+            .select_from(AnalysisJob)
+            .where(AnalysisJob.document_id == document_id),
+            AnalysisJob,
+        )
+        return int((await self.session.execute(statement)).scalar_one())
+
     async def get(self, scope: OwnershipScope, job_id: UUID) -> AnalysisJob | None:
         statement = scope.apply(select(AnalysisJob).where(AnalysisJob.id == job_id), AnalysisJob)
         return (await self.session.execute(statement)).scalar_one_or_none()
@@ -136,3 +162,53 @@ class AnalysisJobRepository(Repository):
         return await cas_transition(
             self.session, AnalysisJob, job_id, "status", expected, new, **fields
         )
+
+    async def active_for_vendor(
+        self, scope: OwnershipScope, vendor_id: UUID, job_type: AnalysisJobType
+    ) -> AnalysisJob | None:
+        statement = scope.apply(
+            select(AnalysisJob)
+            .where(
+                AnalysisJob.vendor_id == vendor_id,
+                AnalysisJob.job_type == job_type,
+                AnalysisJob.status.in_(ACTIVE_STATUSES),
+            )
+            .order_by(AnalysisJob.created_at.desc())
+            .limit(1),
+            AnalysisJob,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def count_for_vendor(self, scope: OwnershipScope, vendor_id: UUID) -> int:
+        statement = scope.apply(
+            select(func.count()).select_from(AnalysisJob).where(AnalysisJob.vendor_id == vendor_id),
+            AnalysisJob,
+        )
+        return int((await self.session.execute(statement)).scalar_one())
+
+    async def latest_for_document(
+        self, scope: OwnershipScope, document_id: UUID, job_type: AnalysisJobType
+    ) -> AnalysisJob | None:
+        """The newest job of this type for the document, whatever its status."""
+        statement = scope.apply(
+            select(AnalysisJob)
+            .where(AnalysisJob.document_id == document_id, AnalysisJob.job_type == job_type)
+            .order_by(AnalysisJob.created_at.desc(), AnalysisJob.id.desc())
+            .limit(1),
+            AnalysisJob,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def latest_finished_at(
+        self, scope: OwnershipScope, document_ids: Collection[UUID], job_type: AnalysisJobType
+    ) -> datetime | None:
+        """When the most recent succeeded job of this type for any of these documents finished."""
+        statement = scope.apply(
+            select(func.max(AnalysisJob.finished_at)).where(
+                AnalysisJob.document_id.in_(list(document_ids)),
+                AnalysisJob.job_type == job_type,
+                AnalysisJob.status == JobStatus.SUCCEEDED,
+            ),
+            AnalysisJob,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()

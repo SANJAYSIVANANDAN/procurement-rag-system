@@ -11,6 +11,7 @@ from covenantiq import __version__
 from covenantiq.api.container import Container, build_container
 from covenantiq.core.config import Settings
 from covenantiq.db.migrations import alembic_config
+from covenantiq.graphs.checkpointing import setup_checkpointer_sync
 
 app = typer.Typer(help="CovenantIQ command line.", no_args_is_help=True)
 dlq_app = typer.Typer(help="Inspect and replay dead-lettered tasks.", no_args_is_help=True)
@@ -44,9 +45,12 @@ def version() -> None:
 
 @app.command()
 def migrate() -> None:
-    """Upgrade the database schema to the latest Alembic revision."""
+    """Upgrade the database schema to the latest Alembic revision and create the LangGraph
+    checkpoint tables."""
     command.upgrade(alembic_config(), "head")
     typer.echo("database is at head")
+    setup_checkpointer_sync(Settings().checkpoint_db_url.get_secret_value())
+    typer.echo("checkpoint tables are ready")
 
 
 @app.command("check-config")

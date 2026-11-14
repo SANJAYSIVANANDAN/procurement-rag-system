@@ -81,3 +81,25 @@ class MessagePage(BaseModel):
 
     items: list[MessageOut]
     next_cursor: str | None
+
+
+class MessageSubmit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1, max_length=8000)
+    client_message_id: UUID | None = Field(
+        default=None,
+        description="Send the same id again to retry safely: no second reply is generated.",
+    )
+    document_ids: list[UUID] | None = Field(
+        default=None,
+        max_length=200,
+        description="Search only these documents. Default: the conversation's documents.",
+    )
+
+
+class MessageAccepted(BaseModel):
+    user_message_id: UUID
+    assistant_message_id: UUID
+    stream_url: str
+    status: MessageStatus

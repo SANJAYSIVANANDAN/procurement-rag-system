@@ -204,6 +204,15 @@ class CitationValidator:
             return False, f"the number {wrong[0]} is not in the cited source"
         return True, None
 
+    def supports(self, statement: str, source_text: str) -> tuple[bool, str | None]:
+        """Is `statement` supported by `source_text`? The check chat answers use, for callers
+        (contract analysis) that cite sources without `[C#]` markers in running text."""
+        return self._supported(statement, source_text)
+
+    def quote_for(self, source_text: str, claims: list[str]) -> str:
+        """The sentence of a source that best matches what was claimed about it."""
+        return self._best_quote(source_text, claims)
+
     def _citation(
         self, marker: str, source: ContextSource, checks: list[SentenceCheck]
     ) -> Citation:

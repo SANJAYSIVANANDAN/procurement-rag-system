@@ -8,16 +8,20 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import httpx
+import pytest
 from sqlalchemy import text
 
 from covenantiq.ai.embeddings.fake import HashEmbeddingProvider
 from covenantiq.api.container import Container
 from covenantiq.core.config import get_settings
+from covenantiq.core.enums import DocumentStatus
 from covenantiq.db.scope import OwnershipScope
 from covenantiq.db.uow import UnitOfWork
+from covenantiq.graphs.checkpointing import psycopg_url
 from covenantiq.services.task_dispatcher import NullTaskDispatcher
 from tests.fakes import FakeExtractor, healthy_result
 from tests.fixtures import contracts as fixtures
+from tests.integration.analysis.stack import clean_checkpoints  # noqa: F401  (a fixture)
 from tests.integration.factories import make_chunk, make_clause
 
 MakeSession = Callable[[], Any]
@@ -47,7 +51,7 @@ def run_task_with(extractor: Any, task_name: str, *args: str, **kwargs: str) -> 
             embedder=HashEmbeddingProvider(),
             dispatcher=NullTaskDispatcher(),
         ),
-        asyncio.new_event_loop(),
+        runtime.new_event_loop(),
     )
     try:
         return celery_app.tasks[task_name].apply(args=list(args), kwargs=kwargs)
@@ -217,7 +221,108 @@ async def test_a_task_that_cannot_succeed_fails_the_job_then_replay_recovers_it(
     assert (await job_of(client, session, job_id))["status"] == "queued"  # waiting to be embedded
 
 
-async def test_analysis_stubs_fail_their_jobs_with_not_implemented(
+@pytest.fixture
+def checkpoint_database(database_url: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the worker's LangGraph checkpointer at the test database (tables created for it)."""
+    monkeypatch.setenv("CIQ_CHECKPOINT_DB_URL", psycopg_url(database_url))
+    get_settings.cache_clear()
+
+
+async def analysis_job_for(
+    client: httpx.AsyncClient,
+    session: Any,
+    uow_factory: Callable[[], UnitOfWork],
+    *,
+    ready: bool,
+) -> tuple[UUID, UUID]:
+    from tests.integration.factories import make_analysis_job
+
+    created = await upload(client, session)
+    owner, document_id = UUID(session.id), UUID(created["document"]["id"])
+    async with uow_factory() as uow:
+        if ready:
+            await uow.documents.system_set_status(
+                document_id, [DocumentStatus.QUEUED], DocumentStatus.READY
+            )
+        job, _ = await uow.analysis_jobs.create_or_get_active(
+            OwnershipScope(owner), make_analysis_job(owner, document_id=document_id)
+        )
+        await uow.commit()
+    return job.id, owner
+
+
+@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
+async def test_the_analysis_task_fails_a_job_on_a_document_that_is_not_ready(
+    client: httpx.AsyncClient,
+    make_session: MakeSession,
+    uow_factory: Callable[[], UnitOfWork],
+) -> None:
+    session = await make_session()
+    job_id, _ = await analysis_job_for(client, session, uow_factory, ready=False)
+
+    result = await run("analysis.run_contract_analysis", str(job_id))
+
+    assert result.state == "REJECTED"
+    body = await job_of(client, session, str(job_id))
+    assert (body["status"], body["error"]["code"]) == ("failed", "DOCUMENT_NOT_READY")
+
+
+@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
+async def test_the_analysis_task_runs_the_real_graph_and_fails_cleanly_without_a_usable_model(
+    client: httpx.AsyncClient,
+    make_session: MakeSession,
+    uow_factory: Callable[[], UnitOfWork],
+) -> None:
+    """The worker container is built from settings (fake model, real retrieval engine, real
+    checkpointer). The fake model's default answer is not valid output, so every batch degrades
+    and the job ends `failed` with ANALYSIS_DEGRADED, and no finding is stored."""
+    session = await make_session()
+    job_id, _ = await analysis_job_for(client, session, uow_factory, ready=True)
+
+    result = await run("analysis.run_contract_analysis", str(job_id))
+
+    assert result.state == "REJECTED"
+    body = await job_of(client, session, str(job_id))
+    assert (body["status"], body["error"]["code"]) == ("failed", "ANALYSIS_DEGRADED")
+    async with uow_factory() as uow:
+        stored = (
+            await uow.session.execute(text("SELECT count(*) FROM contract_findings"))
+        ).scalar_one()
+    assert stored == 0
+
+
+async def vendor_job_for(
+    client: httpx.AsyncClient,
+    session: Any,
+    uow_factory: Callable[[], UnitOfWork],
+    *,
+    depends_on: list[UUID] | None = None,
+    job_type: Any = None,
+) -> tuple[UUID, UUID]:
+    """A ready document linked to a new vendor, and a queued vendor job for it."""
+    from covenantiq.core.enums import AnalysisJobType
+    from tests.integration.factories import make_analysis_job, make_vendor
+
+    created = await upload(client, session)
+    owner, document_id = UUID(session.id), UUID(created["document"]["id"])
+    async with uow_factory() as uow:
+        scope = OwnershipScope(owner)
+        vendor = await uow.vendors.add(scope, make_vendor(owner))
+        await uow.session.execute(
+            text("UPDATE documents SET vendor_id = :v, status = 'ready' WHERE id = :d"),
+            {"v": vendor.id, "d": document_id},
+        )
+        job = make_analysis_job(
+            owner, vendor_id=vendor.id, job_type=job_type or AnalysisJobType.VENDOR_ASSESSMENT
+        )
+        job.params = {"depends_on": [str(d) for d in depends_on or []]}
+        stored, _ = await uow.analysis_jobs.create_or_get_active(scope, job)
+        await uow.commit()
+    return stored.id, document_id
+
+
+@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
+async def test_a_vendor_assessment_gives_up_after_a_bounded_wait_for_its_dependency(
     client: httpx.AsyncClient,
     make_session: MakeSession,
     uow_factory: Callable[[], UnitOfWork],
@@ -227,18 +332,71 @@ async def test_analysis_stubs_fail_their_jobs_with_not_implemented(
     session = await make_session()
     created = await upload(client, session)
     owner = UUID(session.id)
-    async with uow_factory() as uow:
-        job, _ = await uow.analysis_jobs.create_or_get_active(
+    async with uow_factory() as uow:  # a contract analysis that has not run yet
+        dependency, _ = await uow.analysis_jobs.create_or_get_active(
             OwnershipScope(owner),
             make_analysis_job(owner, document_id=UUID(created["document"]["id"])),
         )
         await uow.commit()
+    job_id, _ = await vendor_job_for(client, session, uow_factory, depends_on=[dependency.id])
 
-    result = await run("analysis.run_contract_analysis", str(job.id))
+    result = await run("analysis.run_vendor_assessment", str(job_id))
+
+    # Celery's eager mode re-runs a retried task inline, so this plays out the whole bounded wait:
+    # twenty "still running, ask again later" answers, then the job fails with a clear code.
+    assert result.state == "REJECTED"
+    body = await job_of(client, session, str(job_id))
+    assert (body["status"], body["error"]["code"]) == ("failed", "DEPENDENCY_NOT_READY")
+
+
+@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
+async def test_a_vendor_assessment_whose_documents_were_never_analysed_fails_clearly(
+    client: httpx.AsyncClient,
+    make_session: MakeSession,
+    uow_factory: Callable[[], UnitOfWork],
+) -> None:
+    session = await make_session()
+    job_id, _ = await vendor_job_for(client, session, uow_factory)
+
+    result = await run("analysis.run_vendor_assessment", str(job_id))
 
     assert result.state == "REJECTED"
-    body = await job_of(client, session, str(job.id))
-    assert (body["status"], body["error"]["code"]) == ("failed", "NOT_IMPLEMENTED")
+    body = await job_of(client, session, str(job_id))
+    assert (body["status"], body["error"]["code"]) == ("failed", "DEPENDENCY_NOT_READY")
+
+
+@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
+async def test_a_comparison_task_for_vendors_without_assessments_fails_with_the_reason(
+    client: httpx.AsyncClient,
+    make_session: MakeSession,
+    uow_factory: Callable[[], UnitOfWork],
+) -> None:
+    from covenantiq.core.enums import AnalysisJobType
+    from covenantiq.db.models import VendorComparison
+
+    session = await make_session()
+    job_id, _ = await vendor_job_for(
+        client, session, uow_factory, job_type=AnalysisJobType.VENDOR_COMPARISON
+    )
+    owner = UUID(session.id)
+    async with uow_factory() as uow:
+        await uow.comparisons.add(
+            OwnershipScope(owner),
+            VendorComparison(
+                owner_id=owner,
+                analysis_job_id=job_id,
+                vendor_ids=[str(uuid4()), str(uuid4())],
+                assessment_ids=[],
+                result={},
+            ),
+        )
+        await uow.commit()
+
+    result = await run("analysis.run_vendor_comparison", str(job_id))
+
+    assert result.state == "REJECTED"
+    body = await job_of(client, session, str(job_id))
+    assert (body["status"], body["error"]["code"]) == ("failed", "ASSESSMENT_REQUIRED")
 
 
 async def test_purge_removes_a_deleted_documents_rows_and_file(

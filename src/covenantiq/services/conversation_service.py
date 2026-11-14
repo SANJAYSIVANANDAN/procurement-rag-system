@@ -214,6 +214,19 @@ class ConversationService:
                 raise
             return replay
 
+    async def ensure_owned(self, principal: Principal, conversation_id: UUID) -> None:
+        """Raise NotFound unless the conversation is the caller's. Called before anything else
+        touches the conversation, so a stranger learns nothing about it (not even that it is busy).
+        """
+        async with self._uow_factory() as uow:
+            await self._owned(uow, principal.scope(), conversation_id)
+
+    async def existing_submission(
+        self, principal: Principal, conversation_id: UUID, client_message_id: UUID
+    ) -> SubmittedMessageDTO | None:
+        """The earlier submission with this `client_message_id`, if there is one."""
+        return await self._replay(principal.scope(), conversation_id, client_message_id)
+
     async def _submit(
         self,
         scope: OwnershipScope,

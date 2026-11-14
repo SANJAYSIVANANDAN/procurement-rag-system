@@ -57,12 +57,27 @@ class CitationConfig(_Section):
     quote_max_chars: Positive = 300
 
 
+class AnalysisConfig(_Section):
+    """Contract analysis tuning (spec 20.4, 20.5, 22.5)."""
+
+    absent_threshold: Fraction = 0.30  # best rerank score below this supports "absent"
+    pages_with_text_ratio: Fraction = 0.95  # extraction quality needed to claim absence
+    rules_per_batch: Positive = 4
+    k_final_per_query: Positive = 6
+    max_sources_per_rule: Positive = 8
+    context_tokens_per_rule: Positive = 3000
+    max_degraded_fraction: Fraction = 0.5  # more rules than this failing fails the job
+    max_contradiction_pairs: Positive = 5
+    obligation_sources: Positive = 10
+
+
 class RagConfig(_Section):
     version: int = 1
     retrieval: RetrievalConfig = RetrievalConfig()
     context: ContextConfig = ContextConfig()
     evidence: EvidenceConfig = EvidenceConfig()
     citations: CitationConfig = CitationConfig()
+    analysis: AnalysisConfig = AnalysisConfig()
 
     def with_settings(self, settings: Settings) -> "RagConfig":
         """Environment variables that already exist win over the file."""

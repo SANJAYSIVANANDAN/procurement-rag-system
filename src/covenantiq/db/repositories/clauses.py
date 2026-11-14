@@ -1,7 +1,7 @@
 from collections.abc import Collection, Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from covenantiq.db.models import DocumentClause
 from covenantiq.db.repositories.base import Repository, ensure_owned
@@ -46,3 +46,13 @@ class ClauseRepository(Repository):
             statement = statement.where(DocumentClause.clause_types.overlap(list(clause_types)))
         statement = statement.order_by(DocumentClause.ordinal)
         return (await self.session.execute(statement)).scalars().all()
+
+    async def clause_types_present(self, scope: OwnershipScope, document_id: UUID) -> set[str]:
+        """Every clause type the chunker assigned to any clause of the document."""
+        statement = scope.apply(
+            select(func.unnest(DocumentClause.clause_types)).where(
+                DocumentClause.document_id == document_id
+            ),
+            DocumentClause,
+        ).distinct()
+        return {str(name) for name in (await self.session.execute(statement)).scalars().all()}

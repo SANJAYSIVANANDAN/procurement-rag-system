@@ -83,7 +83,7 @@ services:
   migrate:
     build: {context: ., dockerfile: docker/backend.Dockerfile, target: runtime}
     image: ${CIQ_IMAGE_BACKEND:-covenantiq-backend:local}
-    command: ["covenantiq", "migrate"]          # alembic upgrade head (checkpointer setup joins in M11)
+    command: ["covenantiq", "migrate"]          # alembic upgrade head, then the LangGraph checkpoint tables
     environment: *backend-env
     depends_on:
       postgres: {condition: service_healthy}

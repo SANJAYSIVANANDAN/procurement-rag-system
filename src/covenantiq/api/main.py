@@ -10,10 +10,23 @@ from covenantiq.api.container import Container, build_container
 from covenantiq.api.errors import register_exception_handlers
 from covenantiq.api.limits import MULTIPART_OVERHEAD_BYTES, BodySizeLimitMiddleware
 from covenantiq.api.middleware import RequestContextMiddleware
-from covenantiq.api.routers import auth, conversations, documents, health, jobs, vendors
+from covenantiq.api.routers import (
+    analysis,
+    auth,
+    chat,
+    conversations,
+    documents,
+    health,
+    jobs,
+    vendor_comparisons,
+    vendors,
+)
 from covenantiq.core.config import get_settings
 from covenantiq.core.enums import LogFormat
 from covenantiq.core.logging import configure_logging, get_logger
+from covenantiq.services.chat_service import stale_message_loop
+
+STALE_MESSAGE_SWEEP_SECONDS = 60.0
 
 
 def create_app(container: Container | None = None) -> FastAPI:
@@ -26,7 +39,11 @@ def create_app(container: Container | None = None) -> FastAPI:
         owned = container is None
         app.state.container = container or build_container(settings)
         sweeper: asyncio.Task[None] | None = None
+        stale_sweeper: asyncio.Task[None] | None = None
         if owned:
+            stale_sweeper = asyncio.create_task(
+                stale_message_loop(app.state.container.chat_service, STALE_MESSAGE_SWEEP_SECONDS)
+            )
             await declare_broker_topology(app.state.container)
             if settings.sweep_interval_seconds > 0:
                 sweeper = asyncio.create_task(
@@ -37,6 +54,8 @@ def create_app(container: Container | None = None) -> FastAPI:
         finally:
             if sweeper is not None:
                 sweeper.cancel()
+            if stale_sweeper is not None:
+                stale_sweeper.cancel()
             if owned:
                 await app.state.container.aclose()
 
@@ -55,9 +74,12 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(documents.router, prefix="/api/v1")
+    app.include_router(analysis.router, prefix="/api/v1")
     app.include_router(jobs.router, prefix="/api/v1")
     app.include_router(conversations.router, prefix="/api/v1")
+    app.include_router(chat.router, prefix="/api/v1")
     app.include_router(vendors.router, prefix="/api/v1")
+    app.include_router(vendor_comparisons.router, prefix="/api/v1")
 
     get_logger(__name__).info("api.created", env=settings.env.value)
     return app

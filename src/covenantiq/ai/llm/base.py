@@ -37,6 +37,15 @@ class LLMRefused(CovenantError):
     """The model declined to answer, or its output could not be used. Retrying will not help."""
 
 
+class LLMTruncated(LLMRefused):
+    """The answer hit the token limit, so it is incomplete."""
+
+
+class LLMBadRequest(CovenantError):
+    """The provider rejected the request itself (bad key, unknown model, malformed parameters).
+    A configuration or code problem; retrying will not help and the message names no secret."""
+
+
 @dataclass(frozen=True)
 class ChatMessage:
     role: Literal["user", "assistant"]

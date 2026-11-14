@@ -42,3 +42,14 @@ citations:
   overlap_threshold: 0.35     # share of a sentence's content words found in its source
   partial_unsupported_fraction: 0.30
   quote_max_chars: 300
+
+analysis:                     # contract analysis (spec 20.4, 20.5)
+  absent_threshold: 0.30      # best rerank score below this supports calling a clause absent
+  pages_with_text_ratio: 0.95 # extraction quality needed before any clause may be called absent
+  rules_per_batch: 4          # rules per model call
+  k_final_per_query: 6        # passages kept per retrieval query
+  max_sources_per_rule: 8
+  context_tokens_per_rule: 3000
+  max_degraded_fraction: 0.5  # more than this share of rules failing fails the whole job
+  max_contradiction_pairs: 5  # candidate pairs a model is asked to confirm
+  obligation_sources: 10

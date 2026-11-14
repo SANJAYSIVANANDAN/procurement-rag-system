@@ -151,6 +151,111 @@ is rebuilt. Never "repair" a key by hand; delete it.
 - **Another user's conversation** is a 404 before Redis is consulted, so a wrong id never creates a
   key.
 
+## Chat replies
+
+`POST /api/v1/conversations/{id}/messages` stores the question and an empty reply, answers `202`
+with `{user_message_id, assistant_message_id, stream_url, status}`, and writes the reply in a
+background task. Until the SSE endpoint exists (M15), read the finished reply from
+`GET /conversations/{id}/messages` (`status` is `completed`, `failed` or `interrupted`).
+
+| You see | It means |
+|---|---|
+| `409 GENERATION_IN_PROGRESS` | A reply is already being written in that conversation. Wait for it. |
+| `503 DEPENDENCY_UNAVAILABLE` on submit | Redis is unreachable (the lock needs it). Nothing was stored. |
+| `200` instead of `202` | The same `client_message_id` was sent before: the original ids come back and nothing is generated. |
+| Message `failed` with partial text | The model failed after it began streaming (not retried, by design). The user asks again. |
+| Message `interrupted` | The API restarted mid-reply, or the sweeper found it abandoned (`chat.stale_messages_interrupted`). |
+| Message `completed`, grounding `abstained` | Not enough in the documents; no model call was made to answer. This is the intended behaviour, not a fault. |
+
+- **One reply at a time per conversation** is a Redis key `ciq:<env>:lock:conv:<conversation_id>`
+  holding a random token (120 s, extended every 30 s while the reply is written). If a conversation
+  seems stuck on `409` with nothing generating, the key expires by itself within two minutes;
+  deleting it by hand is safe only if no reply is running.
+- **Logs to know:** `chat.run_finished` (with `total_ms`), `chat.node_failed` (node and error type,
+  never the prompt), `chat.classify_fallback` / `chat.rewrite_fallback` (the routing model failed
+  and the question was searched as written), `chat.memory_record_failed` (the reply is stored; the
+  session was dropped and rebuilds), `llm.retry` (a transient model failure before the first token).
+- **Model configuration** is `CIQ_LLM_PROVIDER`, `CIQ_LLM_MODEL_DEFAULT` and `config/llm_routes.yaml`
+  (effort, token and time budget per route; a route may name another model). A misspelt route name
+  or an invalid value stops the API at start-up. `ANTHROPIC_API_KEY` is required unless the provider
+  is `fake`.
+- **Shutdown** waits up to 20 s for replies in flight, then marks the rest `interrupted`. A deploy
+  that kills the process outright is covered by the sweeper (every minute, replies older than
+  10 minutes).
+- **`covenantiq migrate`** now also creates the LangGraph checkpoint tables (`checkpoints`,
+  `checkpoint_writes`, `checkpoint_blobs`, `checkpoint_migrations`). It is safe to run repeatedly.
+
+## Contract analysis
+
+`POST /documents/{id}/analyze` queues a job on the `contract_analysis` queue (consumed by the
+`analysis` worker); `GET /jobs/{id}` shows its stage and progress; `GET /documents/{id}/findings`
+returns the findings of the latest succeeded analysis (`?job_id=` for another, `?severity=`,
+`?status=`, `?category=` to filter; the summary always counts the whole analysis).
+
+| You see | It means |
+|---|---|
+| Job `failed`, `ANALYSIS_DEGRADED` | More than half the rules could not be assessed (the model or retrieval was down). Nothing was stored. Fix the cause, then `covenantiq dlq replay` or analyse again with `force`. |
+| Job `failed`, `DOCUMENT_NOT_READY` | The document was not `ready` (or was deleted) when the worker started. |
+| Finding `insufficient_evidence` with `details.error` | That rule's batch failed (`LLM_UNAVAILABLE`, `RETRIEVAL_FAILED`, ...). Re-run with `force` once the cause is fixed. |
+| Finding `insufficient_evidence` with `details.reasons` | The system could not decide: poor extraction, an unsure model, an explanation the passages do not support, or an absence it could not prove. This is intended, not a fault. |
+| `notes` on the findings response | The contract type was not set, or an extra pass (obligations, a contradiction check) was skipped. |
+| `200` from `/analyze` | An analysis is already running, or a current one exists for this ruleset and document. `force: true` runs it again unless one is running. |
+
+- **A killed worker resumes.** The graph checkpoints to PostgreSQL after every step (tables created by
+  `covenantiq migrate`). The redelivered task continues the same thread, and batches that already
+  finished are not paid for again; `analysis.resuming` in the log says so. A finished job's checkpoints
+  are deleted. If you must discard a stuck thread, delete its rows by `thread_id` (the job id) in
+  `checkpoints`, `checkpoint_writes` and `checkpoint_blobs`; the next run starts over.
+- **Rules** live in `config/rules/contract_baseline_v1.yaml` (25 baseline rules and the unusual
+  provisions). The file is validated at start-up: an invalid rule stops the API and the worker with
+  the rule's id in the message. Changing a rule's meaning means a new `semver`; the version is stored on
+  every job, so a finding says which ruleset produced it.
+- **Tuning** is in the `analysis:` section of `config/rag.yaml`: `absent_threshold` (best rerank score
+  below which "absent" is considered), `pages_with_text_ratio` (extraction quality needed to claim
+  absence), `rules_per_batch`, `max_degraded_fraction`. Concurrency is `CIQ_ANALYSIS_MAX_CONCURRENCY`
+  (default 3); raise it only if the model provider's rate limit allows.
+- **Logs to know:** `analysis.finished` (findings count), `analysis.batch_failed`,
+  `analysis.retrieval_failed` (a rule degraded), `analysis.obligations_failed`,
+  `analysis.node_failed` (a node failed in a way no rule result describes; the job fails).
+- Every findings response carries the disclaimer: automated analysis for decision support, not legal
+  advice.
+
+## Vendor assessment and comparison
+
+`POST /vendors/{id}/assess` starts any contract analysis the vendor's ready documents still need,
+then queues the assessment behind them (`pending_dependencies` in the response). Poll the job at
+`GET /jobs/{id}`, then read `GET /vendors/{id}/assessments/latest`. `POST /vendors/compare` compares
+two to five assessed vendors; read the result at `GET /vendor-comparisons/{id}` (`result` is empty
+until the job has succeeded).
+
+| You see | It means |
+|---|---|
+| Assessment job `queued` for a while | It is waiting for a contract analysis it depends on. The worker re-checks every 30 s, up to 20 times, without holding a slot. |
+| Job `failed`, `DEPENDENCY_NOT_READY` | A contract analysis did not finish within about ten minutes, or a document has none. Check the contract analysis jobs, then assess again. |
+| Job `failed`, `NO_DOCUMENTS` or `VENDOR_NOT_FOUND` | The vendor has no ready documents, or was deleted. |
+| `provisional: true` on an assessment | Less than 60% of the weighted evidence, or fewer than four dimensions assessed. The score is shown but not rankable. |
+| A dimension `insufficient_evidence` or `not_assessed` | Too few of its signals had evidence (`missing_information` lists them and why). Not a fault: the system says what it could not tell. |
+| `notes` on an assessment | A contract analysis failed, an extraction or explanation fell back, or observations were downgraded. |
+| Compare `409 ASSESSMENT_REQUIRED` | A vendor has no completed assessment (`details.vendor_ids`). |
+| Compare `409 INCOMPATIBLE_ASSESSMENTS` | The assessments used different scoring configurations, or an older one than the current. Re-assess. |
+| Compare `409 CONFLICT` | An assessment is older than the vendor's documents or analyses. Re-assess, or send `require_fresh: false`. |
+| `ranking: []` with a reason | A vendor is provisional, or fewer than four dimensions are comparable. By design: no ranking is better than a misleading one. |
+| `narrative_source: "template"` | The model's summary failed validation (or the model was down); the deterministic summary was used. `result.notes` says why. |
+
+- **Configuration** is `config/vendor/signals_v1.yaml` (26 signals, their weights and sources) and
+  `config/vendor/scoring_v1.yaml` (dimension weights, risk values, the three absences that count as
+  risk, coverage thresholds, severity bands). Both are validated at start-up; an invalid file stops the
+  API and the worker. The scoring `version` is stamped on every assessment: change it whenever a
+  number changes, and assessments made before are then (correctly) not comparable with new ones.
+- **Rescoring never needs the model.** The score is a pure function of the stored signals; to see the
+  effect of a configuration change on past data, re-assess.
+- **A killed worker resumes** like a contract analysis: checkpoints per job in PostgreSQL, finished
+  steps are not repeated (`analysis.resuming` in the log).
+- **Logs to know:** `vendor.waiting` (a dependency is still running), `vendor.assessed`,
+  `vendor.extraction_failed`, `vendor.retrieval_failed`, `comparison.narrative_failed`.
+- Findings and assessments carry the disclaimer: automated analysis for decision support, not legal
+  advice.
+
 ## Searching and tuning retrieval
 
 `covenantiq search` runs the retrieval engine and prints what it did. It prints passage text, so run

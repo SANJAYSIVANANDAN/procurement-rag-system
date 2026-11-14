@@ -1,0 +1,137 @@
+# Vendor signal taxonomy (spec 21.2). The signals are fixed: a model never decides which exist.
+#
+# `contract_rules` signals are mapped deterministically from the latest contract findings of each
+# document (acceptable -> favorable, problematic -> unfavorable, ...). `extraction` signals are read
+# from the vendor's documents by a model, using the queries and the question given here.
+# Validated at start-up by analysis/vendor/config_schema.py, which also checks every rule id
+# against the contract ruleset.
+version: vendor_signals_v1@1.0.0
+
+signals:
+  # ---- legal ---------------------------------------------------------------------------------
+  - {id: LEG-LIAB-CAP, dimension: legal, label: Liability cap present and reasonable, weight: 3,
+     source: {contract_rules: [LIAB-001]}}
+  - {id: LEG-CONSEQ, dimension: legal, label: Consequential damages excluded (mutual), weight: 2,
+     source: {contract_rules: [LIAB-002]}}
+  - {id: LEG-INDEMNITY, dimension: legal, label: Balanced indemnities including IP indemnity, weight: 3,
+     source: {contract_rules: [IND-001, IND-002]}}
+  - {id: LEG-GOV-LAW, dimension: legal, label: Acceptable governing law and jurisdiction, weight: 1,
+     source: {contract_rules: [GOV-001]}}
+
+  # ---- data security -------------------------------------------------------------------------
+  - {id: DS-DPA, dimension: data_security, label: Data protection terms or DPA present, weight: 3,
+     source: {contract_rules: [DP-001]}}
+  - {id: DS-BREACH-NOTICE, dimension: data_security, label: Breach notification within a fixed window, weight: 3,
+     source: {contract_rules: [DP-002]}}
+  - {id: DS-SUBPROC, dimension: data_security, label: Sub-processor approval or notice and an objection right, weight: 2,
+     source: {contract_rules: [DP-003]}}
+  - {id: DS-SEC-STD, dimension: data_security, label: Security standards or certifications committed, weight: 2,
+     source: {contract_rules: [SEC-001]}}
+  - id: DS-PEN-TEST
+    dimension: data_security
+    label: Audit or penetration-test report rights
+    weight: 1
+    source:
+      extraction:
+        queries:
+          - penetration test report audit report SOC 2 customer may request
+          - vendor shall provide independent security audit results annually
+        question: Does the customer have the right to receive penetration-test or independent audit reports?
+
+  # ---- operational ---------------------------------------------------------------------------
+  - {id: OPS-SLA, dimension: operational, label: Availability SLA defined, weight: 3,
+     source: {contract_rules: [SLA-001]}}
+  - {id: OPS-CREDITS, dimension: operational, label: Service credits and remedies, weight: 2,
+     source: {contract_rules: [SLA-002]}}
+  - id: OPS-SUPPORT
+    dimension: operational
+    label: Support response times defined
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - support response time severity level initial response hours
+          - technical support hours of operation escalation
+        question: Are support hours and response or resolution times defined?
+  - id: OPS-BCDR
+    dimension: operational
+    label: Business continuity and disaster recovery commitments
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - business continuity disaster recovery plan recovery time objective
+          - backup frequency recovery point objective failover
+        question: Does the vendor commit to business continuity or disaster recovery measures?
+  - {id: OPS-FORCE-MAJ, dimension: operational, label: Force majeure scope reasonable, weight: 1,
+     source: {contract_rules: [FM-001]}}
+
+  # ---- financial and commercial --------------------------------------------------------------
+  - {id: FIN-PAY-TERMS, dimension: financial_commercial, label: Payment terms acceptable, weight: 2,
+     source: {contract_rules: [PAY-001]}}
+  - {id: FIN-PRICE-ESC, dimension: financial_commercial, label: Price escalation capped and predictable, weight: 3,
+     source: {contract_rules: [PAY-002]}}
+  - id: FIN-MIN-COMMIT
+    dimension: financial_commercial
+    label: Minimum commitments or take-or-pay
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - minimum commitment take-or-pay minimum fees annual commitment
+          - customer shall pay minimum charges regardless of usage
+        question: Is the customer bound to minimum spend or take-or-pay terms?
+  - id: FIN-PENALTIES
+    dimension: financial_commercial
+    label: Termination fees and penalties
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - early termination fee remaining fees payable upon termination
+          - termination charges penalty cancellation fee
+        question: Are termination fees or penalties payable, and are they proportionate?
+  - {id: FIN-AUTO-RENEW, dimension: financial_commercial, label: Auto-renewal with a short and fair notice window, weight: 2,
+     source: {contract_rules: [REN-001]}}
+
+  # ---- compliance ----------------------------------------------------------------------------
+  - {id: CMP-AUDIT, dimension: compliance, label: Audit rights, weight: 2,
+     source: {contract_rules: [AUD-001]}}
+  - id: CMP-REGS
+    dimension: compliance
+    label: Regulatory compliance commitments
+    weight: 3
+    source:
+      extraction:
+        queries:
+          - vendor shall comply with applicable laws GDPR regulatory requirements
+          - compliance with data protection law sector regulations certification
+        question: Does the vendor commit to comply with applicable regulation (GDPR, sector rules)?
+  - {id: CMP-INSURANCE, dimension: compliance, label: Insurance requirements, weight: 1,
+     source: {contract_rules: [INS-001]}}
+
+  # ---- dependency ----------------------------------------------------------------------------
+  - {id: DEP-EXIT, dimension: dependency, label: Exit and transition assistance with data return, weight: 3,
+     source: {contract_rules: [TERM-003]}}
+  - id: DEP-PORTABILITY
+    dimension: dependency
+    label: Data export in standard formats
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - export customer data standard machine-readable format
+          - data portability csv json export upon request
+        question: Can the customer export its data in a standard, machine-readable format?
+  - id: DEP-EXCLUSIVITY
+    dimension: dependency
+    label: Exclusivity and lock-in terms
+    weight: 2
+    source:
+      extraction:
+        queries:
+          - exclusive supplier customer shall purchase exclusively lock-in
+          - long minimum term no right to use alternative providers
+        question: Does the contract lock the customer in or require exclusivity? (Favorable means no lock-in.)
+  - {id: DEP-TERM-CONV, dimension: dependency, label: Customer termination for convenience, weight: 2,
+     source: {contract_rules: [TERM-001]}}

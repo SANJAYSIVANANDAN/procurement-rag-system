@@ -6,6 +6,10 @@ Uses only database data, so it is deterministic and always possible: when Redis 
     1. take the stored summary and `summary_through_seq`
     2. read the completed messages after that point, newest first, until the token budget is full
     3. older ones that are still unsummarised are returned as `overflow`, for a summarising pass
+
+Only finished exchanges are memory. A question whose reply is still being written (or failed, or was
+interrupted) is left out: the reply in progress is recorded together with its question when it
+completes, and a question nobody answered is not something a later turn should build on.
 """
 
 from collections.abc import Callable
@@ -80,6 +84,7 @@ class Reconstructor:
 
     async def reconstruct(self, scope: OwnershipScope, state: ConversationState) -> Reconstruction:
         turns: list[SessionTurn] = []
+        answered: set[UUID] = set()  # user messages that have a completed reply
         before: int | None = None
         async with self._uow_factory() as uow:
             while len(turns) < MAX_MESSAGES:
@@ -89,8 +94,21 @@ class Reconstructor:
                 if not page:
                     break
                 before = page[0].seq
+                # replies are newer than their questions, so they have already been seen
+                answered |= {
+                    m.reply_to_id
+                    for m in page
+                    if m.role is MessageRole.ASSISTANT
+                    and m.status is MessageStatus.COMPLETED
+                    and m.reply_to_id is not None
+                }
                 fresh = [m for m in page if m.seq > state.summary_through_seq]
-                turns[:0] = [t for m in fresh if (t := to_turn(m)) is not None]
+                turns[:0] = [
+                    t
+                    for m in fresh
+                    if (m.role is not MessageRole.USER or m.id in answered)
+                    and (t := to_turn(m)) is not None
+                ]
                 if len(fresh) < len(page) or len(page) < PAGE_SIZE:
                     break  # reached what the summary already covers, or the start
         window, overflow = split_window(turns, self._window_tokens)

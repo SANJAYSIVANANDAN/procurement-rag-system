@@ -4,12 +4,27 @@ from celery import Celery
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from covenantiq.ai.llm.factory import build_llm
+from covenantiq.analysis.contract.rules_loader import get_ruleset
+from covenantiq.analysis.vendor.config_schema import get_vendor_config
 from covenantiq.core.config import Settings
 from covenantiq.core.security import PasswordHasher
 from covenantiq.db.session import create_engine, create_session_factory
 from covenantiq.db.uow import UnitOfWork
+from covenantiq.graphs.deps import GraphDeps
+from covenantiq.graphs.runner import GraphRunner
 from covenantiq.ingestion.storage import FileStorage, LocalFileStorage
+from covenantiq.memory.factory import build_memory_manager
+from covenantiq.memory.manager import MemoryManager
+from covenantiq.rag.citations import CitationValidator
+from covenantiq.rag.config import load_rag_config
+from covenantiq.rag.evidence import EvidenceAssessor
+from covenantiq.rag.factory import build_retrieval_engine
+from covenantiq.rag.retrieval import RetrievalEngine
 from covenantiq.services.auth_service import AuthService
+from covenantiq.services.chat_persistence import PostgresChatStore
+from covenantiq.services.chat_service import ChatService
+from covenantiq.services.contract_analysis_service import ContractAnalysisService
 from covenantiq.services.conversation_service import ConversationService
 from covenantiq.services.dlq_service import DlqService
 from covenantiq.services.document_service import DocumentService
@@ -22,7 +37,11 @@ from covenantiq.services.task_dispatcher import (
     QueueDepthProbe,
     TaskDispatcher,
 )
+from covenantiq.services.vendor_assessment_service import VendorAssessmentService
+from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
+from covenantiq.streaming.locks import ConversationLock
+from covenantiq.streaming.publisher import NullPublisher
 from covenantiq.workers.app_factory import create_celery_app
 from covenantiq.workers.queues import DOCUMENT_PROCESSING
 
@@ -49,8 +68,17 @@ class Container:
     celery_app: Celery
     dlq_service: DlqService
     reembed_service: ReembedService
+    chat_service: ChatService
+    contract_analysis_service: ContractAnalysisService
+    vendor_assessment_service: VendorAssessmentService
+    vendor_comparison_service: VendorComparisonService
+    memory: MemoryManager
+    retrieval: RetrievalEngine
 
     async def aclose(self) -> None:
+        await self.chat_service.aclose()  # replies in flight finish (or are marked interrupted)
+        await self.memory.aclose()
+        await self.retrieval.aclose()
         await self.redis.aclose()
         self.celery_app.close()
         await self.engine.dispose()
@@ -70,6 +98,32 @@ def build_container(settings: Settings) -> Container:
         socket_timeout=REDIS_TIMEOUT_SECONDS,
         socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
     )
+    llm = build_llm(settings)
+    memory = build_memory_manager(settings, uow_factory, redis, llm.provider)
+    conversation_service = ConversationService(uow_factory, memory)
+    retrieval = build_retrieval_engine(settings, uow_factory, redis=redis)
+    rag = load_rag_config(settings.rag_config_file).with_settings(settings)
+    runner = GraphRunner(
+        GraphDeps(
+            retrieval=retrieval,
+            llm=llm.provider,
+            routes=llm.routes,
+            memory=memory,
+            evidence=EvidenceAssessor(rag.evidence),
+            citations=CitationValidator(rag.citations),
+            chat_store=PostgresChatStore(uow_factory),
+            rag=rag,
+        ),
+        NullPublisher(),  # the Redis Streams publisher arrives with the SSE endpoint
+    )
+    chat_service = ChatService(
+        conversation_service,
+        runner,
+        ConversationLock(redis, env=settings.env.value),
+        uow_factory,
+    )
+    contract_analysis = ContractAnalysisService(uow_factory, dispatcher, job_service, get_ruleset())
+    vendor_config = get_vendor_config()
     return Container(
         settings=settings,
         engine=engine,
@@ -94,11 +148,21 @@ def build_container(settings: Settings) -> Container:
             backlog=backlog.depth,
             max_backlog=settings.max_ingest_backlog,
         ),
-        conversation_service=ConversationService(uow_factory),
+        conversation_service=conversation_service,
         vendor_service=VendorService(uow_factory),
         job_service=job_service,
         sweep_service=SweepService(job_service, dispatcher, redis, env=settings.env.value),
         celery_app=celery_app,
         dlq_service=DlqService(celery_app.connection_for_write, job_service, dispatcher),
         reembed_service=ReembedService(uow_factory, dispatcher),
+        chat_service=chat_service,
+        contract_analysis_service=contract_analysis,
+        vendor_assessment_service=VendorAssessmentService(
+            uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config
+        ),
+        vendor_comparison_service=VendorComparisonService(
+            uow_factory, dispatcher, job_service, vendor_config
+        ),
+        memory=memory,
+        retrieval=retrieval,
     )

@@ -1,9 +1,14 @@
+import asyncio
 import os
+import sys
 from collections.abc import Iterator
 
 import pytest
 
 from covenantiq.core.config import get_settings
+
+if sys.platform == "win32":  # psycopg (the LangGraph checkpointer) cannot use the proactor loop
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 VALID_ENV = {
     "CIQ_ENV": "test",

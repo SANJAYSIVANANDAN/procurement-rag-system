@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import Select, delete, func, select, update
 
-from covenantiq.db.models import DocumentChunk
+from covenantiq.db.models import DocumentChunk, DocumentClause
 from covenantiq.db.repositories.base import Repository, ensure_owned
 from covenantiq.db.scope import OwnershipScope
 
@@ -112,3 +112,16 @@ class ChunkRepository(Repository):
             )
         )
         return int(result.rowcount)  # type: ignore[attr-defined]
+
+    async def list_for_document(
+        self, scope: OwnershipScope, document_id: UUID
+    ) -> Sequence[tuple[DocumentChunk, str | None]]:
+        """Every chunk of the document in reading order, with its clause's number."""
+        statement = scope.apply(  # type: ignore[type-var]
+            select(DocumentChunk, DocumentClause.clause_ref)
+            .join(DocumentClause, DocumentClause.id == DocumentChunk.clause_id)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.ordinal),
+            DocumentChunk,
+        )
+        return [(row[0], row[1]) for row in (await self.session.execute(statement)).all()]

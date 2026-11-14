@@ -142,6 +142,36 @@ class MessageRepository(Repository):
             )
         return True
 
+    async def mark_streaming(self, scope: OwnershipScope, message_id: UUID) -> int | None:
+        """pending -> streaming. Returns the message's seq, or None if it was not pending."""
+        statement = (
+            update(Message)
+            .where(
+                Message.id == message_id,
+                Message.status == MessageStatus.PENDING,
+                Message.conversation_id.in_(_owned_conversation_ids(scope)),
+            )
+            .values(status=MessageStatus.STREAMING)
+            .returning(Message.seq)
+            .execution_options(synchronize_session=False)
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
+    async def mark_interrupted(self, scope: OwnershipScope, message_id: UUID) -> bool:
+        """A reply whose producer stopped before it finished (shutdown). No effect on a message
+        that already reached a final state."""
+        statement = (
+            update(Message)
+            .where(
+                Message.id == message_id,
+                Message.status.in_([MessageStatus.PENDING, MessageStatus.STREAMING]),
+                Message.conversation_id.in_(_owned_conversation_ids(scope)),
+            )
+            .values(status=MessageStatus.INTERRUPTED, completed_at=func.now())
+            .execution_options(synchronize_session=False)
+        )
+        return int((await self.session.execute(statement)).rowcount) > 0  # type: ignore[attr-defined]
+
     async def system_mark_interrupted_stale(self, older_than: datetime) -> int:
         """Startup sweep: messages left pending or streaming by a dead API process."""
         result = await self.session.execute(

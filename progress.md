@@ -17,7 +17,10 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M8+ — OpenAI embeddings, Ettin and Cohere rerankers | Code and tests complete, not committed; none verified against the real hosted APIs (no keys); Ettin reranker verified in its container |
 | M9 — pgvector and hybrid retrieval | Code and tests complete, not committed; verified on real pgvector with fake embeddings and a fake reranker; never run with real embeddings, a real reranker or real contracts |
 | M10 — Redis session memory | Code and tests complete, not committed; verified against real Redis and PostgreSQL; the model that writes summaries is a fake (the real adapter is M11) |
-| M11–M19 | Not started |
+| M11 — LangGraph chat orchestration | Code and tests complete, not committed; verified against real PostgreSQL and Redis with a fake model and a scripted retriever; the real Anthropic API has never been called |
+| M12 — Contract analysis | Code and tests complete, not committed; verified on real PostgreSQL (including a real checkpoint resume) with a fake model and a scripted retriever; the real model has never been asked to assess a clause |
+| M13 — Vendor assessment and comparison | Code and tests complete, not committed; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
+| M14–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -345,6 +348,128 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **Redis under real memory pressure** (eviction with `allkeys-lru`): rebuild is tested by deleting keys, not by Redis evicting them.
 - The Compose stack and the backend image (still without the M9 and M10 dependencies and code until it is rebuilt).
 
+## M11 — LangGraph chat orchestration
+
+### Built
+- **`ai/llm/`**: the Anthropic adapter (`anthropic_provider.py`: streaming, structured output via `messages.parse`, token counting, typed errors that never carry prompt text or keys, refusal fallback on, `stop_reason` checked, no sampling parameters), `routes.py` + `config/llm_routes.yaml` (effort, token and time budget per route), `retry.py` (2 retries with backoff, only before the first token), `factory.py`, and a scriptable `FakeLLMProvider` with failure injection. New errors `LLMTruncated`, `LLMBadRequest`.
+- **`ai/schemas`, `ai/prompts`**: `IntentClassification`, `StandaloneQuery`; `chat_answer.v1.md`, `classify.v1.md`, `rewrite.v1.md`.
+- **`streaming/`**: the SSE event models and an order checker, the `StreamPublisher` interface with in-memory and null implementations, and `ConversationLock` (SET NX EX, token, Lua release and extend).
+- **`graphs/`**: `GraphDeps` and ports (the graph imports no `db`), `GraphRunner` (event bridge, ordering guarantee, always one terminal event), `node_guard` and safe error mapping, and `chat/` (state, nodes, graph): load_context, classify_intent, respond_direct, rewrite_query, retrieve, assess_evidence, generate_grounded (streams tokens from the graph), validate_citations, abstain, finalize.
+- **`services/`**: `ChatService.submit` (ownership, idempotent replay, lock, 409, 503, transaction, producer task, heartbeat, shutdown, stale sweeper) and `PostgresChatStore`. New repository methods `mark_streaming`, `mark_interrupted`; `ConversationService.ensure_owned` and `existing_submission`.
+- **API**: `POST /conversations/{id}/messages` (202; 200 on an idempotent replay; the `chat_submit` rate-limit bucket), container wiring (LLM, memory, retrieval engine, runner, chat service), a stale-message sweeper loop in the lifespan, and `covenantiq migrate` creating the LangGraph checkpoint tables.
+- **Docs**: `ADR-021`, a runbook section "Chat replies".
+
+### Verified
+- **Full suite** (real PostgreSQL 16 + pgvector and Redis 7 in throwaway containers): **1393 passed, 20 skipped (17 opt-in e2e, 3 opt-in live Anthropic), 21 slow deselected, 0 failed**; coverage 90%. Lint, mypy (178 files) and the 13 import contracts pass.
+- **Acceptance, idempotency:** the same `client_message_id` returns the same message ids and the fake's call counter does not move; four simultaneous identical submissions store one pair and generate once.
+- **Acceptance, concurrency:** a second question while a reply is generating is a `409` and stores nothing; other conversations are not blocked; a stranger gets `404`, never `409`; the lock outlives its own TTL through the heartbeat and is released afterwards.
+- **Acceptance, events:** every scripted run, including every failure path, satisfies `message_start → (status|token)* → citation* → one terminal event`.
+- **Acceptance, failures:** a model failure before the first token is retried and the user never sees the failed attempt; after a token the message is `failed` with the partial text, no retry, no citations, not remembered; a refusal is not retryable; a retrieval or database failure still ends the stream with one error.
+- **Acceptance, outcome:** an answerable question ends `completed`/`grounded` with validated citations in the `citations` table and `last_completed_seq` advanced; an unanswerable one ends `completed`/`abstained` with no model call to answer.
+- **Redis down:** `503`, nothing stored. **Shutdown:** a reply still running is marked `interrupted` and its listeners get an `INTERRUPTED` error; one that finishes is untouched. **Sweeper:** only abandoned replies are interrupted. A late failure cannot overwrite a finished reply.
+- The Anthropic adapter is tested against the SDK's own HTTP transport with real SSE frames (request shape, streaming, refusal, truncation, structured output, error mapping, no secret or prompt in any error).
+
+### Found and fixed along the way
+- **M10 window bug:** rebuilding a conversation's window while a reply was being written included the question being answered, and recording the finished turn added it again (the history showed the question twice). A window now holds only exchanges whose reply completed; failed and interrupted exchanges are not memory. Regression tests added to the memory suite.
+- A run that failed before it began would have published `error` as its first event; the runner now opens the stream first so the ordering guarantee always holds.
+- A draft answer's trailing whitespace made the stored content differ from the model's text; drafts are trimmed before validation.
+- A new test left the LangGraph tables in the shared test database and broke the migrations round-trip test; it now cleans up after itself.
+
+### Deviations from the spec
+- One `retrieve` node instead of `retrieve_hybrid` + `rerank` (the engine does both as one operation); `assess_evidence` also builds the context.
+- Citation events come from `finalize` after the commit (§26.7), not from `validate_citations` (§22.4's table).
+- The production container publishes to a `NullPublisher`: the Redis Streams publisher and the `GET .../stream` consumer are M15. Until then a reply is read from the messages endpoint.
+- `conversation_summary.v1.md` keeps its M10 name instead of `summarize.v1.md`.
+- The Anthropic adapter is tested through the SDK's `httpx2` transport, not `respx` (the SDK no longer uses the `httpx` that `respx` patches). The `@live` tests are in `tests/e2e/test_anthropic_live.py`, opt in with `CIQ_E2E_LLM=1`.
+- The producer task set is an instance attribute of `ChatService`, not module-level.
+
+### Not yet verified
+- **The real Anthropic API.** No key is on this machine: the request shape (effort, the refusal-fallback beta), streaming, structured output and refusal handling are verified against the SDK's behaviour and mocked HTTP, not against the live service. The three opt-in live tests are written and skipped.
+- **Answer quality.** The prompts were never run on a real model with real contracts; whether answers cite correctly, whether the validator is too strict or too lax, and what a reply costs and how long it takes are all unmeasured.
+- **Real retrieval inside a chat turn.** The integration tests use a scripted retriever (retrieval is covered by its own suite on real pgvector); a full question over an ingested document, end to end, has not been run.
+- **The Compose stack and the backend image** still lack the M9 to M11 dependencies and code (`anthropic`, `langgraph`, `psycopg`); the image has to be rebuilt before `migrate` or the API will run in Docker.
+- **Reading a reply live:** there is no SSE endpoint yet (M15), so nothing can watch tokens arrive over HTTP.
+
+## M12 — Contract analysis
+
+### Built
+- **`config/rules/contract_baseline_v1.yaml`**: the 25 baseline rules of spec 20.2 (queries, keywords, heuristics, extraction fields, questions, severity policy, recommended actions, contradiction value patterns) and five unusual-provision patterns (exclusivity, unilateral amendment, non-solicit, liquidated damages, most-favoured-customer). Version `contract_baseline_v1@1.0.0`.
+- **`analysis/contract/`** (pure, no I/O): `rules_schema` and `rules_loader` (fail-fast validation, taxonomy cross-check, applicability by contract type), `heuristics`, `status` (the §20.5 decision, §20.7 severity, confidence and evidence sufficiency), `obligations`, `contradictions`, `findings`, `types`.
+- **`ai/schemas/analysis.py`** and prompts `rule_assessment.v1.md`, `obligations.v1.md`, `contradiction_confirm.v1.md`.
+- **`graphs/contract_analysis/`**: state (JSON-only), nodes, graph (`Send` fan-out of rule batches, aggregate, obligations, contradictions, unusual provisions, evidence validation, findings, persistence) and `ContractAnalysisRunner` (PostgreSQL checkpointer, resume, throttled progress, cleanup).
+- **`services/`**: `ContractAnalysisService` (`start`, `run`, `findings`), `PostgresAnalysisStore` (document and chunk reads, delete-then-insert persistence with citations and job success in one transaction).
+- **API and worker**: `POST /documents/{id}/analyze` (202; 200 when one is running or current), `GET /documents/{id}/findings` (latest succeeded by default; `job_id`, `severity`, `status`, `category`), the real `analysis.run_contract_analysis` task, container and worker wiring, new repository methods, an `analysis` section in `config/rag.yaml`.
+- **Docs**: `ADR-022` and a runbook section "Contract analysis".
+
+### Verified
+- **Full suite** (real PostgreSQL 16 + pgvector and Redis 7 in throwaway containers): **1564 passed, 20 skipped (opt-in e2e and live model), 21 slow deselected, 0 failed**; coverage 89%. Lint, mypy (196 files) and the 13 import contracts pass.
+- **The decision logic** has a test for every row and boundary of §20.5: absent (confident model, weak score, either alone, a tagged clause blocks it, poor extraction blocks it, the threshold is configurable), problematic, ambiguous, acceptable (red flags downgrade it), insufficient (low confidence, unsupported explanation, nothing to rely on). A clean heuristic scan never produces `acceptable`.
+- **The ruleset:** the shipped file loads; every clause type exists in the taxonomy; 12 heuristic patterns and 4 value patterns are tried on text they must and must not match; nine kinds of invalid file are refused.
+- **The graph** (fake model, scripted retriever): every applicable rule gets a finding in batches of four; absence records what was searched; a red-flag pattern forces `problematic`/`critical`; a model explanation the passage does not support is not shown as fact; a failed batch or a retrieval failure degrades only its rules; exactly half failing is tolerated and more than half fails the job with nothing stored; obligations keep only deadlines present in the text; a confirmed contradiction cites both passages and a dismissed one is dropped; unusual provisions are found anywhere in the document.
+- **Resume on real PostgreSQL checkpoints:** a worker killed after the batches resumes and no batch is asked of the model again; killed in the middle of the batches, the two finished batches are not rerun; the checkpoints are deleted afterwards.
+- **Idempotency and isolation:** a second delivery of a finished job is skipped with no model call and no change; persisting twice leaves one set; a second analyse request while one is queued returns the same job; another user's document and findings are 404; filters narrow the list but not the summary.
+- **Through the real worker container** (settings-built model, retrieval engine and checkpointer): a document that is not ready fails its job with `DOCUMENT_NOT_READY`; a model that cannot produce valid output degrades every rule and the job fails `ANALYSIS_DEGRADED` with no findings stored.
+
+### Found and fixed along the way
+- **Duplicate analyses:** keying the job on a per-document counter meant a second request while one was active created a second job (found by the test that asked twice). The service now returns the active job first.
+- Two rule patterns were wrong and the pattern tests caught them: governing law stopped at "and" ("England" for "England and Wales"), and the non-solicit pattern missed "Neither party shall solicit...".
+- psycopg's async mode cannot run on Windows' default event loop; the worker runtime and the test suite now select the selector loop there.
+
+### Deviations from the spec
+- `RuleAssessment.extracted_values` is a list of `{name, value}` pairs, not a dict (structured output needs a closed schema).
+- The model cannot raise a severity (§20.7): the spec's `RuleAssessment` has no field for it.
+- The checkpointer connects per run, not through a shared pool of one to four.
+- Obligations are stored with `clause_status=acceptable` (the column is not nullable; they are listed, not rated).
+- Explanations are checked with the chat citation validator's overlap and number test on the whole explanation, since analysis text has no `[C#]` markers.
+- The `validate_evidence` step is mostly done inside each batch (where the sources are in hand); the node that remains is a final defensive downgrade.
+
+### Not yet verified
+- **The real model.** No key is on this machine: whether Claude returns valid `RuleAssessmentBatch` output for four rules at once, whether its explanations pass the overlap check often enough, what an analysis costs and how long it takes are all unmeasured. The prompts have never been run.
+- **Real retrieval and real contracts.** The tests use a scripted retriever (retrieval has its own suite); the rules' queries, thresholds (`absent_threshold`) and the heuristic patterns were written from the spec and tested on made-up sentences, not tuned on real agreements. Expect false positives and misses until they are.
+- **Analysis through RabbitMQ and the Compose worker**, and killing a real worker mid-analysis (the resume is tested by crashing the run in-process).
+- The backend image still needs rebuilding (M9 to M12 dependencies and code).
+
+## M13 — Vendor assessment and comparison
+
+### Built
+- **`config/vendor/signals_v1.yaml`** (the 26 signals of spec 21.2 with weights, and for the eight extraction signals their queries and question) and **`scoring_v1.yaml`** (dimension weights, risk values, the three absences that count as risk, thresholds, severity bands, comparison limits). Both validated at start-up, including every contract rule id against the contract ruleset.
+- **`analysis/vendor/`** (pure; imports no `ai`, `db` or `api`): `config_schema`, `signals` (contract finding to signal), `aggregation` (across documents, with conflict flags), `scoring` (the §21.5 engine), `comparison` (the matrix, ranking rules, template summary, narrative validation), `types`.
+- **`ai/schemas/vendor.py`** (no numeric field but source numbers) and prompts `signal_extraction.v1.md`, `explain_dimension.v1.md`, `comparison_narrative.v1.md`.
+- **`graphs/vendor_assessment/`**: load scope, verify the contract analyses, map findings to signals, six `Send` branches reading extraction signals, validate evidence, aggregate, score, explain dimensions (validated, template fallback), persist. **`graphs/vendor_comparison/`**: load, check compatibility, compute, narrative, validate, persist. **`graphs/checkpointed.py`**: the checkpoint, resume and cleanup mechanics, now shared by all three analysis graphs (the contract runner was moved onto it).
+- **`services/`**: `VendorAssessmentService` (start with dependencies, run with the bounded wait, latest, history), `VendorComparisonService` (preconditions, run, get), `PostgresVendorStore`.
+- **API and worker**: `POST /vendors/{id}/assess`, `GET /vendors/{id}/assessments` and `/latest`, `POST /vendors/compare`, `GET /vendor-comparisons/{id}`; the real `analysis.run_vendor_assessment` (with `retry(countdown=30, max_retries=20)` while dependencies run) and `analysis.run_vendor_comparison` tasks; container and worker wiring; repository additions.
+- **Docs**: `ADR-023` and a runbook section "Vendor assessment and comparison".
+
+### Verified
+- **Full suite** (real PostgreSQL 16 + pgvector and Redis 7 in throwaway containers): **1750 passed, 20 skipped (17 opt-in e2e, 3 opt-in live model), 21 slow deselected, 0 failed** in 12 min 43 s; coverage 88%. Lint, mypy (219 files) and the 13 import contracts pass.
+- **Scoring properties (Hypothesis, 120 examples each):** a favorable signal never raises a dimension's score; a riskier status never lowers it; gaps never change a score and only lower coverage; the order of documents never matters; identical inputs give identical outputs; scores stay between the extremes used; the renormalised weights sum to one. Plus the worked examples of §21.5 (coverage, gaps, the three absence overrides, provisional by completeness and by fewer than four dimensions, band edges).
+- **Aggregation and mapping:** the spec's status table; two rules behind one signal; conflicts flagged and scored conservatively; absent only if every document says so.
+- **Comparison:** dimensions comparable only if every vendor is assessed with coverage of at least 0.6, with the reason per vendor; a clause against an absence is "Missing in Globex — cannot compare"; a policy absence is compared and labelled; the ranking is suppressed with a stated reason for a provisional vendor or fewer than four comparable dimensions; vendor order does not change the result.
+- **The model never writes numbers:** the output schemas are inspected for numeric fields; a model explanation that names an unknown signal or states an uncomputed number is replaced by the template; a comparison summary that compares a not-comparable dimension, invents an id, or ranks without a ranking is replaced by the template and the job still succeeds.
+- **Dependencies:** starting an assessment starts the missing contract analyses and queues behind them; a still-running dependency puts the job back to `queued` (worker slot freed); a failed one lets the assessment proceed with insufficient-evidence signals and a note; after twenty waits the job fails `DEPENDENCY_NOT_READY` (played out through the real Celery task in eager mode).
+- **Storage:** six dimensions and their citations in one transaction with the `is_latest` flip (exactly one latest, history kept); storing a job's assessment twice leaves one; a succeeded job is not run again.
+- **Comparison preconditions** (each a 409 naming the vendors): no assessment, different or outdated configuration, a stale assessment (waivable with `require_fresh=false`; also stale after a newer contract analysis); duplicates and counts are 400/422; other users' vendors and comparisons are 404.
+- **Resume on real PostgreSQL checkpoints:** a worker killed after the extraction resumes and reads no signal again.
+
+### Found and fixed along the way
+- A false positive in the narrative check: "behind" in "the evidence behind each dimension" counted as a comparison. The comparative-word list now uses "falls behind", "ahead of" and similar phrases.
+- A comparison test built on a premise that was not true (a vendor with no compliance signals is still complete enough to rank, so a ranking exists); the scenario was changed to a genuinely provisional vendor.
+- Test documents without a contract type only receive the 15 rules for all contracts and MSAs, so most vendor signals had no finding; this is realistic behaviour and is why the integration tests use SaaS contracts. In real use, setting the contract type on upload matters.
+
+### Deviations from the spec
+- Severity bands are exclusive upper bounds in YAML; scores of `None` get severity `info`; `conflicting` is a flag on a signal rather than a gap reason (the spec's algorithm scores conflicts).
+- The narrative length check is 100 to 350 words (spec: 150 to 300).
+- `GET /vendors/{id}` does not yet include the latest assessment summary; the assessment history returns summaries without evidence.
+- Six `Send` branches as specified; the legal branch has no extraction signals and returns at once.
+- A quirk of the specified numbers is recorded in ADR-023: aggregation ranks any unfavorable above ambiguous, but unfavorable-low (30) is less risky than ambiguous (50) in the configured values.
+
+### Not yet verified
+- **The real model.** No key is on this machine: whether Claude reads the eight extraction signals correctly, how often its rationales pass the support check, whether its dimension explanations pass the no-new-numbers check, and whether its comparison summaries pass validation or usually fall back to the template, are all unmeasured. Nothing here has run with a real model.
+- **Real contracts.** The signal queries, the weights and the thresholds come from the spec and were tested on made-up sentences; the first real vendor will show which signals are noisy.
+- **Through RabbitMQ and the Compose workers**, including the 30-second dependency wait across real deliveries and a worker killed mid-assessment.
+- **Test suite time:** the integration suite has grown past ten minutes because every vendor test runs full analyses; sharing a seeded, assessed vendor between tests would cut it down.
+- The backend image still needs rebuilding (M9 to M13 dependencies and code).
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -476,7 +601,11 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Needs CI:** a job that caches the Docling models and runs the slow suite (`uv run pytest -m slow`), and a Compose smoke job (spec 33). The slow suite was last run on Windows in M7 and has not been run since M8.
 - **Not tried:** two large documents processed at the same time on the 7.4 GB Docker allotment; production Compose (`docker-compose.prod.yml` is a skeleton until M19).
 - **Needs your decision:** commit M5 to M8 and the Docker fixes (all uncommitted; nothing has been pushed).
-- **Next milestone:** M11 (LangGraph chat orchestration): the Anthropic adapter, the chat graph over the M9 retrieval engine and the M10 memory, `POST /conversations/{id}/messages` and the SSE stream. M9 and M10 are complete but unmeasured on real data (see their "Not yet verified" sections).
+- **Needs an Anthropic key:** `CIQ_E2E_LLM=1 uv run pytest tests/e2e/test_anthropic_live.py` (three short calls), then one real question over an ingested contract to see answer quality, citation validity and cost. Not run: there is no key on this machine.
+- **RabbitMQ coverage gap (M11 and M12 added to it):** RabbitMQ is the Celery broker for ingestion, embedding, purge, dead-lettering and contract analysis (chat does not use it: replies are an asyncio task in the API). It was run for real only in M6 (dead-lettering, replay, worker-kill drill). Since then tasks have mostly been tested eagerly in-process. Not yet run: ingestion, embedding and the analysis task delivered through the Compose broker to the Compose workers, and killing a real worker mid-analysis. Needs the backend image rebuilt first, then `CIQ_E2E=1 uv run pytest tests/e2e` plus one analysis through the broker.
+- **Needs an Anthropic key (analysis):** analyse one real contract and read the findings end to end (cost, time, false positives, and the share of rules ending `insufficient_evidence`); tune `config/rules/*` and the `analysis:` thresholds from what it shows.
+- **Needs an Anthropic key (vendors):** assess one real vendor with two or three real contracts and read the dimension reasoning, the `notes`, and a comparison; check how many signals end as gaps and whether the extraction signals are noisy.
+- **Next milestone:** M14 (RAGAS evaluation). The SSE publisher and consumer (M15) can come right after, since the chat graph already publishes through the interface. M9 to M11 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
 - M1 and M2 are committed locally on `main`; nothing has been pushed.
 - M5 to M8, the Docker fixes (RabbitMQ bootstrap, DLQ commands, lost-worker reaper, e2e tests, runbook), OpenAI embedding support and the Ettin reranker are all uncommitted.

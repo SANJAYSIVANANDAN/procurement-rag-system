@@ -9,23 +9,30 @@ import pytest_asyncio
 from celery import Celery
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from covenantiq.analysis.contract.rules_loader import get_ruleset
+from covenantiq.analysis.vendor.config_schema import get_vendor_config
 from covenantiq.api.container import Container
 from covenantiq.core.config import get_settings
 from covenantiq.core.security import PasswordHasher
 from covenantiq.db.session import create_session_factory
 from covenantiq.db.uow import UnitOfWork
 from covenantiq.ingestion.storage import LocalFileStorage
+from covenantiq.rag.factory import build_retrieval_engine
 from covenantiq.services import health_service
 from covenantiq.services.auth_service import AuthService
-from covenantiq.services.conversation_service import ConversationService
+from covenantiq.services.contract_analysis_service import ContractAnalysisService
 from covenantiq.services.dlq_service import DlqService
 from covenantiq.services.document_service import DocumentService
 from covenantiq.services.job_service import JobService
 from covenantiq.services.rate_limiter import RateLimiter
 from covenantiq.services.reembed_service import ReembedService
 from covenantiq.services.sweep_service import SweepService
+from covenantiq.services.vendor_assessment_service import VendorAssessmentService
+from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
 from tests.fakes import FakeRedis, RecordingDispatcher
+from tests.integration.chat.stack import make_parts
+from tests.unit.graphs.harness import weak_retrieval
 
 PASSWORD = "correct horse battery staple"
 
@@ -106,6 +113,16 @@ def container(
     storage = LocalFileStorage(storage_root)
     job_service = JobService(uow_factory)
     celery_app = Celery("test", broker="memory://")
+    # Chat needs a real Redis (Lua locks, lists); tests that use it override `container` with one.
+    # Here it only has to exist, so the rest of the API is built exactly as it runs.
+    chat, conversations = make_parts(
+        uow_factory,
+        redis.as_redis(),
+        "test",
+        weak_retrieval(),  # type: ignore[arg-type]
+    )
+    contract_analysis = ContractAnalysisService(uow_factory, dispatcher, job_service, get_ruleset())
+    vendor_config = get_vendor_config()
     return Container(
         settings=settings,
         engine=engine,
@@ -132,13 +149,23 @@ def container(
             backlog=backlog,
             max_backlog=settings.max_ingest_backlog,
         ),
-        conversation_service=ConversationService(uow_factory),
+        conversation_service=conversations,
         vendor_service=VendorService(uow_factory),
         job_service=job_service,
         sweep_service=SweepService(job_service, dispatcher, redis.as_redis(), env="test"),
         celery_app=celery_app,
         dlq_service=DlqService(celery_app.connection_for_write, job_service, dispatcher),
         reembed_service=ReembedService(uow_factory, dispatcher),
+        chat_service=chat.service,
+        contract_analysis_service=contract_analysis,
+        vendor_assessment_service=VendorAssessmentService(
+            uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config
+        ),
+        vendor_comparison_service=VendorComparisonService(
+            uow_factory, dispatcher, job_service, vendor_config
+        ),
+        memory=chat.memory,
+        retrieval=build_retrieval_engine(settings, uow_factory),
     )
 
 

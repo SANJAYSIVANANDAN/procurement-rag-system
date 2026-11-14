@@ -20,26 +20,52 @@ class FakeLLMProvider:
 
     `script(route, handler)` sets what a route answers: a handler receives the request and returns
     either a ready schema instance, a dict of its fields, or text (for the first string field).
-    Every request is recorded in `requests`. With no script, `summarize` answers with a plain,
-    deterministic digest of the conversation it was given, so memory code runs offline.
+    Every request is recorded in `requests`, and `calls` counts how many reached the model.
+
+    Failure injection, for the paths real providers take:
+      `fail()`                      every call raises until `heal()`
+      `fail_next(n)`                the next n calls raise `LLMUnavailable`, then calls succeed
+      `fail_stream_after(words)`    a stream yields that many words, then raises `LLMUnavailable`
+
+    With no script, `summarize` answers with a plain deterministic digest of what it was given and
+    other routes answer "ok", so code that calls a model runs offline.
     """
 
     model_name = "fake-llm"
 
     def __init__(self) -> None:
         self.requests: list[LLMRequest] = []
+        self.calls = 0
         self._handlers: dict[str, Handler] = {}
         self.fail_with: Exception | None = None
+        self._transient_failures = 0
+        self._stream_fails_after: int | None = None
 
     def script(self, route: str, handler: Handler) -> None:
         self._handlers[route] = handler
 
     def fail(self, error: Exception | None = None) -> None:
-        """Make every call raise (default: an unavailable provider); `fail(None)` stops it."""
         self.fail_with = error or LLMUnavailable("the fake provider is down")
 
     def heal(self) -> None:
         self.fail_with = None
+        self._transient_failures = 0
+        self._stream_fails_after = None
+
+    def fail_next(self, count: int) -> None:
+        self._transient_failures = count
+
+    def fail_stream_after(self, words: int) -> None:
+        self._stream_fails_after = words
+
+    def _begin(self, request: LLMRequest) -> None:
+        self.requests.append(request)
+        self.calls += 1
+        if self.fail_with is not None:
+            raise self.fail_with
+        if self._transient_failures > 0:
+            self._transient_failures -= 1
+            raise LLMUnavailable("the fake provider failed this call")
 
     def _answer(self, request: LLMRequest) -> Any:
         handler = self._handlers.get(request.route)
@@ -51,9 +77,7 @@ class FakeLLMProvider:
         return "ok"
 
     async def structured(self, request: LLMRequest, schema: type[T]) -> StructuredResult[T]:
-        self.requests.append(request)
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._begin(request)
         answer = self._answer(request)
         if isinstance(answer, BaseModel):
             value = schema.model_validate(answer.model_dump())
@@ -68,11 +92,11 @@ class FakeLLMProvider:
         return StructuredResult(value=value, usage=used, model=self.model_name)
 
     async def stream(self, request: LLMRequest) -> AsyncIterator[LLMStreamEvent]:
-        self.requests.append(request)
-        if self.fail_with is not None:
-            raise self.fail_with
+        self._begin(request)
         text = str(self._answer(request))
-        for word in text.split(" "):
+        for index, word in enumerate(text.split(" ")):
+            if self._stream_fails_after is not None and index >= self._stream_fails_after:
+                raise LLMUnavailable("the fake stream broke part-way")
             yield LLMStreamEvent("delta", text=word + " ")
         yield LLMStreamEvent("usage", usage=LLMUsage(output_tokens=len(text) // 4))
         yield LLMStreamEvent("stop", stop_reason="end_turn")

@@ -19,12 +19,18 @@ def test_version() -> None:
     assert result.output.strip() == __version__
 
 
-def test_migrate_upgrades_to_head(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migrate_upgrades_to_head_then_creates_the_checkpoint_tables(
+    valid_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     calls: list[str] = []
     monkeypatch.setattr("covenantiq.cli.command.upgrade", lambda _config, rev: calls.append(rev))
+    monkeypatch.setattr(
+        "covenantiq.cli.setup_checkpointer_sync", lambda url: calls.append(f"checkpoint:{url}")
+    )
     result = runner.invoke(app, ["migrate"])
     assert result.exit_code == 0
-    assert calls == ["head"]
+    assert calls == ["head", f"checkpoint:{valid_env['CIQ_CHECKPOINT_DB_URL']}"]
+    assert "checkpoint tables are ready" in result.output
 
 
 def test_check_config_ok(valid_env: dict[str, str]) -> None:
