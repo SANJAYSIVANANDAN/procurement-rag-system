@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from covenantiq.core import redis_keys
 from covenantiq.core.errors import RateLimited
 from covenantiq.core.logging import get_logger
 
@@ -57,7 +58,7 @@ class RateLimiter:
         rule = self._limits[bucket]
         now = int(self._clock())
         window_index, elapsed = divmod(now, rule.window_seconds)
-        key = f"ciq:{self._env}:rl:{bucket}:{identifier}:{window_index}"
+        key = redis_keys.rate_limit(self._env, bucket, identifier, window_index)
         try:
             async with self._redis.pipeline(transaction=True) as pipe:
                 pipe.incr(key)

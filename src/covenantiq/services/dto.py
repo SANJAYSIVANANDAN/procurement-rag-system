@@ -3,8 +3,23 @@ from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
-from covenantiq.core.enums import ContractType, DocumentStatus, JobStatus
-from covenantiq.db.models import AnalysisJob, Document, DocumentProcessingJob, Vendor
+from covenantiq.core.enums import (
+    ContractType,
+    DocumentStatus,
+    GroundingStatus,
+    JobStatus,
+    MessageRole,
+    MessageStatus,
+)
+from covenantiq.db.models import (
+    AnalysisJob,
+    Citation,
+    Conversation,
+    Document,
+    DocumentProcessingJob,
+    Message,
+    Vendor,
+)
 from covenantiq.db.scope import OwnershipScope
 
 
@@ -167,4 +182,96 @@ def vendor_to_dto(vendor: Vendor) -> VendorDTO:
         metadata=vendor.metadata_,
         created_at=vendor.created_at,
         updated_at=vendor.updated_at,
+    )
+
+
+@dataclass(frozen=True)
+class ConversationDTO:
+    id: UUID
+    title: str | None
+    vendor_id: UUID | None
+    archived: bool
+    document_ids: list[UUID]
+    last_message_seq: int
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ConversationDetailDTO:
+    conversation: ConversationDTO
+    documents: list[DocumentDTO]
+
+
+@dataclass(frozen=True)
+class CitationDTO:
+    marker: int | None
+    document_id: UUID
+    document_title: str
+    page_start: int | None
+    page_end: int | None
+    clause_ref: str | None
+    quote: str
+    validated: bool
+
+
+@dataclass(frozen=True)
+class MessageDTO:
+    id: UUID
+    seq: int
+    role: MessageRole
+    content: str
+    status: MessageStatus
+    grounding_status: GroundingStatus | None
+    created_at: datetime
+    completed_at: datetime | None
+    citations: list[CitationDTO] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SubmittedMessageDTO:
+    user_message_id: UUID
+    assistant_message_id: UUID
+    assistant_status: MessageStatus
+    selected_document_ids: list[UUID]
+    replay: bool  # the same client_message_id was already submitted: nothing new was stored
+
+
+def conversation_to_dto(conversation: Conversation, document_ids: list[UUID]) -> ConversationDTO:
+    return ConversationDTO(
+        id=conversation.id,
+        title=conversation.title,
+        vendor_id=conversation.vendor_id,
+        archived=conversation.archived,
+        document_ids=document_ids,
+        last_message_seq=conversation.last_message_seq,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
+    )
+
+
+def citation_to_dto(citation: Citation) -> CitationDTO:
+    return CitationDTO(
+        marker=citation.marker,
+        document_id=citation.document_id,
+        document_title=citation.document_title,
+        page_start=citation.page_start,
+        page_end=citation.page_end,
+        clause_ref=citation.clause_ref,
+        quote=citation.quote,
+        validated=citation.validated,
+    )
+
+
+def message_to_dto(message: Message, citations: list[Citation]) -> MessageDTO:
+    return MessageDTO(
+        id=message.id,
+        seq=message.seq,
+        role=message.role,
+        content=message.content,
+        status=message.status,
+        grounding_status=message.grounding_status,
+        created_at=message.created_at,
+        completed_at=message.completed_at,
+        citations=[citation_to_dto(c) for c in citations],
     )

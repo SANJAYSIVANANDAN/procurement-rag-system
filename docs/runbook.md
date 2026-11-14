@@ -119,6 +119,38 @@ Uploads fail fast with `503 DISPATCH_FAILED` when the broker is down (the docume
 `failed`; uploading the same file again re-schedules it), and with `429 INGESTION_BACKLOG` when
 `document_processing` holds more than `CIQ_MAX_INGEST_BACKLOG` messages.
 
+## Conversation memory (Redis)
+
+Each conversation has two Redis keys, both containing the user id and both expiring after
+`CIQ_SESSION_TTL_SECONDS` (default 2 hours, refreshed on every read and write):
+
+```text
+ciq:<env>:sess:<user_id>:<conversation_id>:window   LIST  the recent turns, oldest first
+ciq:<env>:sess:<user_id>:<conversation_id>:meta     HASH  last_seq, summary, summary_through_seq, window_tokens, schema_v
+```
+
+**Redis is a cache.** PostgreSQL holds every message and the rolling summary, so nothing in Redis
+is precious: flushing it, restarting it, or letting keys expire or be evicted (`allkeys-lru`,
+256 MB) only makes the next message in each conversation about 20 to 50 ms slower while the window
+is rebuilt. Never "repair" a key by hand; delete it.
+
+- **See what is cached** (never use `KEYS` on a busy instance; this uses `SCAN`):
+  `docker compose exec redis sh -c 'redis-cli -a "$REDIS_PASSWORD" --scan --pattern "ciq:*:sess:*"'`
+- **Force a rebuild of one conversation:** `DEL` its two keys. The next load rebuilds from PostgreSQL.
+- **`memory.rebuilt` in the logs** says why a window was rebuilt: `miss` (expired or evicted),
+  `last_seq_mismatch` (a reply reached PostgreSQL but was not recorded, for example the API died
+  between the two), `schema_version`, `summary_out_of_step`, `corrupt_meta`, `corrupt_turn`,
+  `out_of_order`, `token_count_mismatch`, or `expired_before_record`. A steady trickle of `miss` is
+  normal; a burst of the others means something is writing to Redis that should not, or a deploy
+  changed the stored format (bump `SCHEMA_VERSION` and it rebuilds on its own).
+- **The window never grows past `CIQ_MEMORY_WINDOW_TOKENS` (3,000).** Older turns are folded into
+  the conversation's summary (`CIQ_MEMORY_SUMMARY_TOKENS`, 600) by a background task:
+  `memory.summarised` on success, `memory.summary_failed` when the model was unavailable. A failed
+  summary deletes the session so the next load retries it; if `memory.summary_failed` repeats, check
+  the model provider, not Redis.
+- **Another user's conversation** is a 404 before Redis is consulted, so a wrong id never creates a
+  key.
+
 ## Searching and tuning retrieval
 
 `covenantiq search` runs the retrieval engine and prints what it did. It prints passage text, so run

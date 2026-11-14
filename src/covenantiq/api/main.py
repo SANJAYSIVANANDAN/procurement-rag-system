@@ -10,7 +10,7 @@ from covenantiq.api.container import Container, build_container
 from covenantiq.api.errors import register_exception_handlers
 from covenantiq.api.limits import MULTIPART_OVERHEAD_BYTES, BodySizeLimitMiddleware
 from covenantiq.api.middleware import RequestContextMiddleware
-from covenantiq.api.routers import auth, documents, health, jobs, vendors
+from covenantiq.api.routers import auth, conversations, documents, health, jobs, vendors
 from covenantiq.core.config import get_settings
 from covenantiq.core.enums import LogFormat
 from covenantiq.core.logging import configure_logging, get_logger
@@ -56,6 +56,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.include_router(auth.router, prefix="/api/v1")
     app.include_router(documents.router, prefix="/api/v1")
     app.include_router(jobs.router, prefix="/api/v1")
+    app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(vendors.router, prefix="/api/v1")
 
     get_logger(__name__).info("api.created", env=settings.env.value)

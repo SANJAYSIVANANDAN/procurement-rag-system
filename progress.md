@@ -16,7 +16,8 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M8 — Chunking and embeddings | Code and tests complete, not committed; vector writes verified on real pgvector; the real Voyage API is unverified |
 | M8+ — OpenAI embeddings, Ettin and Cohere rerankers | Code and tests complete, not committed; none verified against the real hosted APIs (no keys); Ettin reranker verified in its container |
 | M9 — pgvector and hybrid retrieval | Code and tests complete, not committed; verified on real pgvector with fake embeddings and a fake reranker; never run with real embeddings, a real reranker or real contracts |
-| M10–M19 | Not started |
+| M10 — Redis session memory | Code and tests complete, not committed; verified against real Redis and PostgreSQL; the model that writes summaries is a fake (the real adapter is M11) |
+| M11–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -306,6 +307,44 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - The query-embedding and rerank-score caches against a real Redis (tested with a stub and with an unreachable port).
 - The `search` CLI inside the Compose containers: the backend image predates the new dependencies (`rapidfuzz`, `snowballstemmer`) and must be rebuilt first.
 
+## M10 — Redis session memory and conversations
+
+### Built
+- **`core/redis_keys.py`**: every Redis key in one module (session window and meta, stream, conversation lock, rate limits, sweep, caches). The rate limiter, the sweep and the retrieval caches were moved onto it, and a test fails if a `ciq:` string appears anywhere else.
+- **`ai/llm/`**: the `LLMProvider` port (spec 19.15: `stream`, `structured`, `count_tokens`, `LLMRequest`, `ChatMessage`) and a scriptable `FakeLLMProvider`; `ai/prompts/` with a loader and the versioned `conversation_summary.v1.md`. The real Anthropic adapter is M11.
+- **`memory/`**: `SessionMemoryProvider` (the Redis window and meta hash with a TTL on both, pipelined writes in a `MULTI`, overflow detection), `Reconstructor` (rebuild from PostgreSQL), `Summarizer` (model-written rolling summary within a token budget), `MemoryManager` (one entry point; background summarising; V2-ready extension providers), `build_memory_manager`.
+- **`services/conversation_service.py`**: create, list (keyset cursor), detail, `PATCH` (rename, document scope, archive, vendor), message history with citations, and the submit-side persistence of a user message: a user message plus a pending assistant message in one transaction with sequence numbers under the row lock, document scope resolved, idempotent replay of a repeated `client_message_id`. Also `memory_context`, which checks ownership before touching Redis.
+- **API**: `POST/GET /conversations`, `GET/PATCH /conversations/{id}`, `GET /conversations/{id}/messages` (`before_seq` and a `next_cursor`). New repository methods `advance_summary`, `get_reply` and keyset `list`.
+- **Docs**: `ADR-020` and a runbook section "Conversation memory (Redis)".
+
+### Verified
+- **Full suite: 1239 passed, 17 skipped (opt-in e2e), 21 slow deselected, 0 failed**; coverage 92%. Lint, mypy (160 files) and the 13 import contracts pass.
+- About 130 new tests, the memory ones against **real Redis 7 and real PostgreSQL**:
+  - **Acceptance, deleting keys:** deleting the Redis keys and calling `load` gives the same window (also after a simulated restart).
+  - **Acceptance, `last_seq`:** a `last_seq` mismatch (a reply in PostgreSQL that never reached Redis) triggers a rebuild that includes the missing turn.
+  - **Acceptance, overflow:** overflow produces a summary in PostgreSQL first and then Redis; the window then holds only what is newer, fits its budget and always keeps the last exchange.
+  - **Acceptance, keys and TTL:** the keys contain the user id, the `ciq:<env>:` prefix and a TTL on both; a read refreshes it.
+  - **Damaged entries:** 8 kinds of damaged or outdated entry (corrupt JSON, wrong schema version, missing schema, non-numeric meta, wrong token count, out of order, summary out of step) are rebuilt, not trusted, and healed.
+  - **Expiry mid-generation:** a session that expires while a reply is being generated is rebuilt with the full history, not restarted with one exchange.
+  - **Failed summaries:** a failed summary drops the session and the next load recovers it once the model is back.
+  - **Summary ordering:** summaries run one at a time per conversation and an older one can never overwrite a newer one.
+  - **Isolation:** two users with the same conversation id never share a key; another user's conversation is 404 before Redis is read, and no key is created.
+  - **Concurrency:** ten concurrent submissions get ten distinct consecutive sequence pairs; six racing duplicates of one `client_message_id` store exactly one message.
+  - **Scope and API:** document-scope resolution never includes another user's or an unfinished document, and every conversation endpoint answers 404 for another user's conversation.
+
+### Deviations from the spec
+- `MemoryManager.load` and the providers take a `ConversationState` (id, `last_completed_seq`, summary, `summary_through_seq`) instead of the bare conversation id, because the spec's own consistency check needs those values "without an extra query". The service still checks ownership in PostgreSQL first.
+- Three extra consistency checks beyond the spec's list (`summary_through_seq` out of step with PostgreSQL, turns out of order, token count that does not add up).
+- Pydantic's JSON instead of `orjson`; same behaviour.
+- The API container does not build a `MemoryManager` yet: production settings forbid the fake model, and the real adapter is M11 (`build_memory_manager` is ready).
+- `POST /conversations/{id}/messages` (submit and start generation) is not an endpoint yet: the persistence is in `ConversationService.submit_message`, the route arrives with the chat graph (M11). The spec's M10 asks only for CRUD plus message listing.
+
+### Not yet verified
+- **A real model writing the summaries**: the fake produces a plain digest, so summary quality, cost and latency are unmeasured, and the prompt was never run against a real model.
+- **The chat service recording turns**: M11 will call `record_turn` after finalising a reply; until then the memory library is exercised only by tests that simulate turns.
+- **Redis under real memory pressure** (eviction with `allkeys-lru`): rebuild is tested by deleting keys, not by Redis evicting them.
+- The Compose stack and the backend image (still without the M9 and M10 dependencies and code until it is rebuilt).
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -437,7 +476,7 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Needs CI:** a job that caches the Docling models and runs the slow suite (`uv run pytest -m slow`), and a Compose smoke job (spec 33). The slow suite was last run on Windows in M7 and has not been run since M8.
 - **Not tried:** two large documents processed at the same time on the 7.4 GB Docker allotment; production Compose (`docker-compose.prod.yml` is a skeleton until M19).
 - **Needs your decision:** commit M5 to M8 and the Docker fixes (all uncommitted; nothing has been pushed).
-- **Next milestone:** M10 (Redis session memory); M11 (LangGraph chat) builds on the M9 retrieval engine. M9 is complete but unmeasured on real data (see "M9 — Not yet verified").
+- **Next milestone:** M11 (LangGraph chat orchestration): the Anthropic adapter, the chat graph over the M9 retrieval engine and the M10 memory, `POST /conversations/{id}/messages` and the SSE stream. M9 and M10 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
 - M1 and M2 are committed locally on `main`; nothing has been pushed.
 - M5 to M8, the Docker fixes (RabbitMQ bootstrap, DLQ commands, lost-worker reaper, e2e tests, runbook), OpenAI embedding support and the Ettin reranker are all uncommitted.

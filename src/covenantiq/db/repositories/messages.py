@@ -57,6 +57,14 @@ class MessageRepository(Repository):
         )
         return (await self.session.execute(statement)).scalar_one_or_none()
 
+    async def get_reply(self, scope: OwnershipScope, message_id: UUID) -> Message | None:
+        """The assistant message that answers a user message."""
+        statement = select(Message).where(
+            Message.reply_to_id == message_id,
+            Message.conversation_id.in_(_owned_conversation_ids(scope)),
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none()
+
     async def recent(
         self,
         scope: OwnershipScope,

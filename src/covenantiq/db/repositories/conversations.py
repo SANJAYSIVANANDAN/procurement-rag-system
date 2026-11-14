@@ -1,7 +1,8 @@
 from collections.abc import Collection, Sequence
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, tuple_, update
 
 from covenantiq.db.models import Conversation, ConversationDocument, Document
 from covenantiq.db.repositories.base import Repository, ensure_owned
@@ -41,10 +42,18 @@ class ConversationRepository(Repository):
         include_archived: bool = False,
         limit: int = 50,
         offset: int = 0,
+        after: tuple[datetime, UUID] | None = None,
     ) -> Sequence[Conversation]:
+        """Most recently active first. `after` is the (updated_at, id) of the last row already
+        seen (keyset pagination, stable while conversations are updated); `offset` is kept for
+        callers that want it."""
         statement = scope.apply(select(Conversation), Conversation)
         if not include_archived:
             statement = statement.where(Conversation.archived.is_(False))
+        if after is not None:
+            statement = statement.where(
+                tuple_(Conversation.updated_at, Conversation.id) < tuple_(*after)
+            )
         statement = (
             statement.order_by(Conversation.updated_at.desc(), Conversation.id.desc())
             .limit(limit)
@@ -58,6 +67,23 @@ class ConversationRepository(Repository):
         statement = scope.apply(
             update(Conversation)
             .where(Conversation.id == conversation_id)
+            .values(summary=summary, summary_through_seq=through_seq)
+            .returning(Conversation.id)
+            .execution_options(synchronize_session=False),
+            Conversation,
+        )
+        return (await self.session.execute(statement)).scalar_one_or_none() is not None
+
+    async def advance_summary(
+        self, scope: OwnershipScope, conversation_id: UUID, summary: str, through_seq: int
+    ) -> bool:
+        """Store a summary only if it covers more of the conversation than the stored one, so two
+        summaries finishing out of order can never move it backwards."""
+        statement = scope.apply(
+            update(Conversation)
+            .where(
+                Conversation.id == conversation_id, Conversation.summary_through_seq < through_seq
+            )
             .values(summary=summary, summary_through_seq=through_seq)
             .returning(Conversation.id)
             .execution_options(synchronize_session=False),

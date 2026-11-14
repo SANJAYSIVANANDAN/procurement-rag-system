@@ -17,6 +17,7 @@ from covenantiq.db.uow import UnitOfWork
 from covenantiq.ingestion.storage import LocalFileStorage
 from covenantiq.services import health_service
 from covenantiq.services.auth_service import AuthService
+from covenantiq.services.conversation_service import ConversationService
 from covenantiq.services.dlq_service import DlqService
 from covenantiq.services.document_service import DocumentService
 from covenantiq.services.job_service import JobService
@@ -131,6 +132,7 @@ def container(
             backlog=backlog,
             max_backlog=settings.max_ingest_backlog,
         ),
+        conversation_service=ConversationService(uow_factory),
         vendor_service=VendorService(uow_factory),
         job_service=job_service,
         sweep_service=SweepService(job_service, dispatcher, redis.as_redis(), env="test"),

@@ -4,6 +4,7 @@ from datetime import timedelta
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
+from covenantiq.core import redis_keys
 from covenantiq.core.enums import ProcessingStage
 from covenantiq.core.logging import get_logger
 from covenantiq.services.job_service import ANALYSIS, JobService, QueuedJob
@@ -84,7 +85,9 @@ class SweepService:
         """One sweeper at a time across every API replica and the CLI."""
         try:
             return bool(
-                await redis.set(f"ciq:{self._env}:lock:sweep", "1", nx=True, ex=SWEEP_LOCK_SECONDS)
+                await redis.set(
+                    redis_keys.sweep_lock(self._env), "1", nx=True, ex=SWEEP_LOCK_SECONDS
+                )
             )
         except (RedisError, OSError):
             log.warning("sweep.lock_unavailable")
@@ -98,7 +101,7 @@ class SweepService:
         try:
             return bool(
                 await self._redis.set(
-                    f"ciq:{self._env}:sweep:redispatched:{job.job_id}",
+                    redis_keys.sweep_redispatched(self._env, job.job_id),
                     "1",
                     nx=True,
                     ex=REDISPATCH_GUARD_SECONDS,

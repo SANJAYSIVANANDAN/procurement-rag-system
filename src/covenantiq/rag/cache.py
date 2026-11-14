@@ -19,6 +19,7 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from covenantiq.ai.rerank.breaker import CircuitBreaker
+from covenantiq.core import redis_keys
 from covenantiq.core.logging import get_logger
 
 log = get_logger(__name__)
@@ -92,11 +93,11 @@ def query_sha(query: str) -> str:
 
 
 def embedding_key(env: str, model: str, query: str) -> str:
-    return f"ciq:{env}:cache:qemb:{model}:{query_sha(query)}"
+    return redis_keys.query_embedding(env, model, query_sha(query))
 
 
 def rerank_key(env: str, model: str, sha: str, chunk_id: UUID) -> str:
-    return f"ciq:{env}:cache:rr:{model}:{sha}:{chunk_id}"
+    return redis_keys.rerank_score(env, model, sha, chunk_id)
 
 
 def encode_vector(vector: list[float]) -> bytes:

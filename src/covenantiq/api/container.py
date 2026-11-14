@@ -10,6 +10,7 @@ from covenantiq.db.session import create_engine, create_session_factory
 from covenantiq.db.uow import UnitOfWork
 from covenantiq.ingestion.storage import FileStorage, LocalFileStorage
 from covenantiq.services.auth_service import AuthService
+from covenantiq.services.conversation_service import ConversationService
 from covenantiq.services.dlq_service import DlqService
 from covenantiq.services.document_service import DocumentService
 from covenantiq.services.job_service import JobService
@@ -41,6 +42,7 @@ class Container:
     storage: FileStorage
     dispatcher: TaskDispatcher
     document_service: DocumentService
+    conversation_service: ConversationService
     vendor_service: VendorService
     job_service: JobService
     sweep_service: SweepService
@@ -92,6 +94,7 @@ def build_container(settings: Settings) -> Container:
             backlog=backlog.depth,
             max_backlog=settings.max_ingest_backlog,
         ),
+        conversation_service=ConversationService(uow_factory),
         vendor_service=VendorService(uow_factory),
         job_service=job_service,
         sweep_service=SweepService(job_service, dispatcher, redis, env=settings.env.value),

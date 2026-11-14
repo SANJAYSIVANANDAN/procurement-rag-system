@@ -8,8 +8,8 @@ truncated after every test.
 import asyncio
 import os
 from collections.abc import AsyncIterator, Callable, Iterator, Sequence
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
@@ -24,6 +24,9 @@ from covenantiq.db.repositories import chunks as chunk_repository
 from covenantiq.db.scope import OwnershipScope
 from covenantiq.db.session import create_session_factory
 from covenantiq.db.uow import UnitOfWork
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
 
 ENV = {
     "CIQ_ENV": "test",
@@ -142,3 +145,30 @@ def vector_writes(
             )
 
     monkeypatch.setattr(chunk_repository.ChunkRepository, "set_embeddings", set_embeddings)
+
+
+@pytest.fixture(scope="session")
+def redis_url() -> str:
+    """A real Redis for the tests that need one (CIQ_TEST_REDIS_URL); skipped without it."""
+    url = os.environ.get("CIQ_TEST_REDIS_URL")
+    if not url:
+        pytest.skip("set CIQ_TEST_REDIS_URL to run the Redis integration tests")
+    return url
+
+
+@pytest.fixture
+def redis_env() -> str:
+    """A key namespace used by one test only, so tests cannot see each other's keys."""
+    return f"t{uuid4().hex[:10]}"
+
+
+@pytest_asyncio.fixture
+async def redis_client(redis_url: str, redis_env: str) -> AsyncIterator["Redis"]:
+    from redis.asyncio import Redis
+
+    client = Redis.from_url(redis_url)
+    yield client
+    keys = [key async for key in client.scan_iter(match=f"ciq:{redis_env}:*", count=200)]
+    if keys:
+        await client.delete(*keys)
+    await client.aclose()
