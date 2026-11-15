@@ -89,10 +89,12 @@ class Settings(BaseSettings):
     max_ingest_backlog: PositiveInt = 200
     max_active_jobs_per_user: PositiveInt = 10
 
-    llm_provider: Literal["anthropic", "fake"] = "anthropic"
+    llm_provider: Literal["anthropic", "openai", "fake"] = "anthropic"
     llm_model_default: str = "claude-opus-5-5"
     llm_routes_file: Path = Path("config/llm_routes.yaml")
     anthropic_api_key: SecretStr | None = Field(default=None, validation_alias="ANTHROPIC_API_KEY")
+    # whether to send `reasoning_effort` to an OpenAI chat model (off for one without reasoning)
+    openai_send_effort: bool = True
 
     embedding_provider: Literal["voyage", "openai_compat", "fake"] = "voyage"
     embedding_model: str = "voyage-law-2"
@@ -198,6 +200,11 @@ class Settings(BaseSettings):
         problems: list[str] = []
         if self.llm_provider == "anthropic" and self.anthropic_api_key is None:
             problems.append("ANTHROPIC_API_KEY is required when CIQ_LLM_PROVIDER=anthropic")
+        if self.llm_provider == "openai" and self.openai_compat_api_key is None:
+            problems.append(
+                "OPENAI_API_KEY (or CIQ_OPENAI_COMPAT_API_KEY) is required "
+                "when CIQ_LLM_PROVIDER=openai"
+            )
         if "voyage" in (self.embedding_provider, self.rerank_provider) and (
             self.voyage_api_key is None
         ):

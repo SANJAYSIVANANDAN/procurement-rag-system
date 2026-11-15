@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from covenantiq.ai.llm.anthropic_provider import AnthropicProvider
 from covenantiq.ai.llm.base import LLMProvider
 from covenantiq.ai.llm.fake import FakeLLMProvider
+from covenantiq.ai.llm.openai_provider import DEFAULT_BASE_URL, OpenAIProvider
 from covenantiq.ai.llm.retry import RetryingLLMProvider
 from covenantiq.ai.llm.routes import RouteTable, load_routes
 from covenantiq.core.config import Settings
@@ -19,6 +20,16 @@ def build_llm(settings: Settings) -> LLMStack:
     routes = load_routes(settings.llm_model_default, settings.llm_routes_file)
     if settings.llm_provider == "fake":
         return LLMStack(FakeLLMProvider(), routes)
+    if settings.llm_provider == "openai":
+        if settings.openai_compat_api_key is None:
+            raise ValueError("OPENAI_API_KEY is not set")
+        openai_provider = OpenAIProvider(
+            settings.openai_compat_api_key.get_secret_value(),
+            routes,
+            base_url=settings.openai_compat_base_url or DEFAULT_BASE_URL,
+            send_effort=settings.openai_send_effort,
+        )
+        return LLMStack(RetryingLLMProvider(openai_provider), routes)
     if settings.anthropic_api_key is None:
         raise ValueError("ANTHROPIC_API_KEY is not set")
     provider = AnthropicProvider(settings.anthropic_api_key.get_secret_value(), routes)

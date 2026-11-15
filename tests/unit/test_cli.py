@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from typer.testing import CliRunner
 
@@ -86,9 +88,89 @@ class TestOperationalCommands:
         assert "dimension=1024 (expected 1024)" in result.output
         assert "embeddings ok" in result.output
 
-    def test_check_embeddings_reports_bad_settings_without_a_traceback(
+    def test_check_llm_reports_what_the_model_said_without_printing_the_key(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        import json
+
+        import httpx
+        import respx
+
+        for name, value in {
+            "CIQ_OFFLINE": "0",
+            "CIQ_LLM_PROVIDER": "openai",
+            "CIQ_LLM_MODEL_DEFAULT": "some-openai-model",
+            "OPENAI_API_KEY": "sk-secret-do-not-print",
+            "CIQ_OPENAI_COMPAT_BASE_URL": "https://api.test/v1",
+            "CIQ_EMBEDDING_PROVIDER": "fake",
+            "CIQ_RERANK_PROVIDER": "none",
+            "CIQ_DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+            "CIQ_CHECKPOINT_DB_URL": "postgresql://u:p@localhost/db",
+            "CIQ_REDIS_URL": "redis://localhost:6379/0",
+            "CIQ_CELERY_RESULT_BACKEND": "redis://localhost:6379/1",
+            "CIQ_RABBITMQ_URL": "amqp://u:p@localhost:5672/v",
+            "CIQ_JWT_SECRET": "x" * 40,
+        }.items():
+            monkeypatch.setenv(name, value)
+        chunk = {"choices": [{"delta": {"content": "Paris"}, "finish_reason": "stop"}]}
+        usage = {"choices": [], "usage": {"prompt_tokens": 9, "completion_tokens": 2}}
+        stream = "".join(f"data: {json.dumps(c)}" + chr(10) * 2 for c in (chunk, usage))
+        stream += "data: [DONE]" + chr(10) * 2
+        structured = {
+            "model": "some-openai-model",
+            "choices": [
+                {"message": {"content": '{"capital_of_france": "Paris"}'}, "finish_reason": "stop"}
+            ],
+            "usage": {"prompt_tokens": 9, "completion_tokens": 6},
+        }
+        with respx.mock:
+            respx.post("https://api.test/v1/chat/completions").mock(
+                side_effect=[
+                    httpx.Response(
+                        200, headers={"content-type": "text/event-stream"}, content=stream
+                    ),
+                    httpx.Response(200, json=structured),
+                ]
+            )
+            result = runner.invoke(app, ["check-llm"])
+        assert result.exit_code == 0, result.output
+        assert "provider=openai model=some-openai-model" in result.output
+        assert "'Paris'" in result.output and "model ok" in result.output
+        assert "sk-secret" not in result.output
+
+    def test_check_llm_reports_a_rejected_key_plainly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+        import respx
+
+        for name, value in {
+            "CIQ_OFFLINE": "0",
+            "CIQ_LLM_PROVIDER": "openai",
+            "OPENAI_API_KEY": "sk-secret-do-not-print",
+            "CIQ_OPENAI_COMPAT_BASE_URL": "https://api.test/v1",
+            "CIQ_EMBEDDING_PROVIDER": "fake",
+            "CIQ_RERANK_PROVIDER": "none",
+            "CIQ_DATABASE_URL": "postgresql+asyncpg://u:p@localhost/db",
+            "CIQ_CHECKPOINT_DB_URL": "postgresql://u:p@localhost/db",
+            "CIQ_REDIS_URL": "redis://localhost:6379/0",
+            "CIQ_CELERY_RESULT_BACKEND": "redis://localhost:6379/1",
+            "CIQ_RABBITMQ_URL": "amqp://u:p@localhost:5672/v",
+            "CIQ_JWT_SECRET": "x" * 40,
+        }.items():
+            monkeypatch.setenv(name, value)
+        with respx.mock:
+            respx.post("https://api.test/v1/chat/completions").mock(
+                return_value=httpx.Response(401, json={"error": {"message": "bad key"}})
+            )
+            result = runner.invoke(app, ["check-llm"])
+        assert result.exit_code == 1
+        assert "HTTP 401" in result.output and "sk-secret" not in result.output
+
+    def test_check_embeddings_reports_bad_settings_without_a_traceback(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        monkeypatch.chdir(tmp_path)  # no .env here: the developer's own must not decide this test
         monkeypatch.setenv("CIQ_OFFLINE", "0")
         monkeypatch.setenv("CIQ_EMBEDDING_PROVIDER", "openai_compat")
         monkeypatch.delenv("CIQ_OPENAI_COMPAT_API_KEY", raising=False)

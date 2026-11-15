@@ -276,6 +276,55 @@ def check_rerank() -> None:
         raise typer.Exit(code=1) from exc
 
 
+@app.command("check-llm")
+def check_llm() -> None:
+    """Ask the configured model one tiny question and report what came back.
+
+    A quick way to confirm a new API key and model name work before using chat or analysis. Sends
+    one short, non-sensitive prompt and a one-field structured request; prints no keys."""
+
+    async def go() -> None:
+        from pydantic import BaseModel
+
+        from covenantiq.ai.llm.base import ChatMessage
+        from covenantiq.ai.llm.factory import build_llm
+        from covenantiq.core.errors import CovenantError
+
+        class Check(BaseModel):
+            capital_of_france: str
+
+        settings = Settings()
+        stack = build_llm(settings)
+        request = stack.routes.request(
+            "classify",
+            "Answer in as few words as possible.",
+            [ChatMessage("user", "Capital of France?")],
+        )
+        try:
+            text = "".join(
+                [e.text async for e in stack.provider.stream(request) if e.kind == "delta"]
+            )
+            structured = await stack.provider.structured(request, Check)
+        except CovenantError as exc:
+            typer.echo(f"model call failed: {exc.message}", err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"provider={settings.llm_provider} model={stack.routes.model_for('classify')}")
+        typer.echo(f"streamed: {text.strip()[:80]!r}")
+        typer.echo(
+            f"structured: {structured.value.capital_of_france!r} "
+            f"(tokens in={structured.usage.input_tokens} out={structured.usage.output_tokens})"
+        )
+        typer.echo("model ok")
+
+    try:
+        asyncio.run(go())
+    except ValidationError as exc:
+        for error in exc.errors():
+            location = ".".join(str(part) for part in error["loc"]) or "settings"
+            typer.echo(f"{location}: {error['msg']}", err=True)
+        raise typer.Exit(code=1) from exc
+
+
 @app.command("check-embeddings")
 def check_embeddings() -> None:
     """Embed a few sentences with the configured provider and report what came back.

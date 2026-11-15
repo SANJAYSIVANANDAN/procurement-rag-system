@@ -177,7 +177,14 @@ background task. Follow it live at `stream_url` (below), or read the finished re
   session was dropped and rebuilds), `llm.retry` (a transient model failure before the first token).
 - **Model configuration** is `CIQ_LLM_PROVIDER`, `CIQ_LLM_MODEL_DEFAULT` and `config/llm_routes.yaml`
   (effort, token and time budget per route; a route may name another model). A misspelt route name
-  or an invalid value stops the API at start-up. `ANTHROPIC_API_KEY` is required unless the provider
+  or an invalid value stops the API at start-up. **Using OpenAI for the model:** `CIQ_LLM_PROVIDER=openai`,
+  `CIQ_LLM_MODEL_DEFAULT=<a model you have access to>` and `OPENAI_API_KEY` (the key and
+  `CIQ_OPENAI_COMPAT_BASE_URL` are shared with the OpenAI embeddings). Routes can name other models in
+  `config/llm_routes.yaml`; `effort` is sent as `reasoning_effort` (`xhigh` and `max` become `high`),
+  so for a model without that parameter set `CIQ_OPENAI_SEND_EFFORT=false`. `covenantiq check-llm` makes
+  one tiny streamed and one structured call and prints the model and token counts (never the key).
+  Contract text is sent to OpenAI. Answers and analyses were designed and measured against Anthropic's
+  models; with OpenAI the prompts are the same, but their quality and cost are unmeasured. `ANTHROPIC_API_KEY` is required unless the provider
   is `fake`.
 - **Shutdown** waits up to 20 s for replies in flight, then marks the rest `interrupted`. A deploy
   that kills the process outright is covered by the sweeper (every minute, replies older than

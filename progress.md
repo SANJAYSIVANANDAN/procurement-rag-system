@@ -608,6 +608,25 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in Â
 - **Tuning thresholds from the evaluation:** the offline numbers come from fake providers (see M14).
 - **Log scans cover chat only**, not ingestion, analysis or vendor runs.
 
+## OpenAI as the model provider (after M17)
+
+### Built
+- **`ai/llm/openai_provider.py`**: `OpenAIProvider` for OpenAI or any server with an OpenAI-style `/chat/completions`, on `httpx` (no SDK). Streaming with usage, structured output through `response_format: json_schema` (not strict, validated by pydantic: our schemas have optional fields), `max_completion_tokens`, no sampling parameters, `reasoning_effort` from the route's effort (`xhigh` and `max` become `high`; off with `CIQ_OPENAI_SEND_EFFORT=false`), `length` and `content_filter` and a `refusal` field become typed errors, errors carry no prompt text or key. Token counting is an estimate (the API has no such call).
+- **Configuration:** `CIQ_LLM_PROVIDER` accepts `openai`; it needs `OPENAI_API_KEY` (or `CIQ_OPENAI_COMPAT_API_KEY`) and uses `CIQ_OPENAI_COMPAT_BASE_URL` (default `https://api.openai.com/v1`), shared with the OpenAI embeddings. The model is `CIQ_LLM_MODEL_DEFAULT`; routes may name others in `config/llm_routes.yaml`. The factory wraps it in the same retry layer as Anthropic.
+- **`covenantiq check-llm`**: one tiny streamed and one structured call, prints the model and token counts, never the key.
+- **`.env` on this machine** (edited by me without reading any secret): `CIQ_LLM_PROVIDER=openai`, `CIQ_LLM_MODEL_DEFAULT=gpt-5.6-sol`, `CIQ_RERANK_PROVIDER=none`, `CIQ_OPENAI_COMPAT_BASE_URL=https://api.openai.com/v1` added. The settings now load.
+- Docs: runbook ("Model configuration") and `.env.example`.
+
+### Verified
+- 29 adapter tests (mocked API with `respx`): streaming order and usage, parameter names, effort mapping and switch, truncation, content filter, refusal, every retryable and non-retryable status, no key in any error, the retry wrapper retrying before the first token, structured parsing and its failures, the configuration (key required, base URL, no Anthropic key needed); 2 CLI tests for `check-llm`. Unit suite: 1397 passed. Lint and mypy pass.
+- One existing test depended on the developer's own `.env` and failed once `.env` held a key; it now runs in an empty directory.
+
+### Not verified
+- **No call has been made to OpenAI.** The adapter has only run against a mock. Whether the key works, whether `gpt-5.6-sol` exists for this account, whether it accepts `reasoning_effort` and `json_schema` as sent, and how long the first-token delay is: all unknown until `covenantiq check-llm` is run.
+- **The model name is a guess from a web search** whose sources disagreed (they named `gpt-5.6-sol` and a GPT-6 model). Change `CIQ_LLM_MODEL_DEFAULT` to whatever the account lists.
+- **Quality and cost:** the prompts, the citation validator and the evaluation thresholds were written and tuned against Anthropic's models; none of them has run against an OpenAI model. Nothing in M14's offline baseline depends on the provider.
+- **Anthropic:** its adapter is unchanged and also never called (no key).
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -743,6 +762,7 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **RabbitMQ coverage gap (M11 to M13 added to it; chat does not use it, analysis and vendor tasks do):** RabbitMQ is the Celery broker for ingestion, embedding, purge, dead-lettering and contract analysis (chat does not use it: replies are an asyncio task in the API). It was run for real only in M6 (dead-lettering, replay, worker-kill drill). Since then tasks have mostly been tested eagerly in-process. Not yet run: ingestion, embedding and the analysis task delivered through the Compose broker to the Compose workers, and killing a real worker mid-analysis. Needs the backend image rebuilt first, then `CIQ_E2E=1 uv run pytest tests/e2e` plus one analysis through the broker.
 - **Needs an Anthropic key (analysis):** analyse one real contract and read the findings end to end (cost, time, false positives, and the share of rules ending `insufficient_evidence`); tune `config/rules/*` and the `analysis:` thresholds from what it shows.
 - **Needs an Anthropic key (vendors):** assess one real vendor with two or three real contracts and read the dimension reasoning, the `notes`, and a comparison; check how many signals end as gaps and whether the extraction signals are noisy.
+- **Needs a run of `covenantiq check-llm`** (uses the key in `.env`, costs a few tokens): the first real model call of the project; then ask a real question in the UI.
 - **Needs an Anthropic key (evaluation):** `make eval-full` (cost estimate printed first), then commit the report under `docs/eval/`; calibrate the evidence thresholds from it and add `eval-retrieval`.
 - **Needs your decision:** whether an answer made only of `ungrounded` claims should abstain (see M14).
 - **Needs an Anthropic key (streaming):** ask one real question over an ingested contract and watch it with `curl -N` (time to first token, how the draft differs from the final text, whether citations validate).
