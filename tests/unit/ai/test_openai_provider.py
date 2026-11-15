@@ -15,7 +15,7 @@ from covenantiq.ai.llm.base import (
     LLMUnavailable,
 )
 from covenantiq.ai.llm.factory import build_llm
-from covenantiq.ai.llm.openai_provider import OpenAIProvider
+from covenantiq.ai.llm.openai_provider import OpenAIProvider, strict_schema
 from covenantiq.ai.llm.routes import LLMRoute, RouteTable
 from covenantiq.core.config import Settings
 
@@ -210,8 +210,12 @@ class TestStructured:
         sent = json.loads(route.calls.last.request.content)
         fmt = sent["response_format"]
         assert fmt["type"] == "json_schema" and fmt["json_schema"]["name"] == "Intent"
-        assert fmt["json_schema"]["strict"] is False  # our schemas have optional fields
-        assert fmt["json_schema"]["schema"]["properties"]["intent"]["type"] == "string"
+        assert fmt["json_schema"]["strict"] is True
+        schema = fmt["json_schema"]["schema"]
+        assert schema["properties"]["intent"]["type"] == "string"
+        assert schema["additionalProperties"] is False
+        assert schema["required"] == ["intent", "needs_retrieval"]  # the optional one too
+        assert "default" not in schema["properties"]["needs_retrieval"]
         assert "stream" not in sent
 
     @respx.mock
@@ -243,6 +247,81 @@ class TestStructured:
         respx.post(URL).respond(status_code=401, json={})
         with pytest.raises(LLMBadRequest):
             await provider().structured(request("classify"), Intent)
+
+
+class Inner(BaseModel):
+    kind: str
+    note: str | None = None
+
+
+class Outer(BaseModel):
+    items: list[Inner] = []
+    label: str = "x"
+
+
+class TestStrictSchema:
+    def test_every_object_is_closed_with_every_property_required_and_no_defaults(self) -> None:
+        schema = strict_schema(Outer.model_json_schema())
+        assert schema["additionalProperties"] is False and schema["required"] == ["items", "label"]
+        inner = schema["$defs"]["Inner"]
+        assert inner["additionalProperties"] is False and inner["required"] == ["kind", "note"]
+        assert "default" not in json.dumps(schema)
+
+    def test_a_field_called_default_is_not_mistaken_for_the_keyword(self) -> None:
+        class Odd(BaseModel):
+            default: str
+
+        schema = strict_schema(Odd.model_json_schema())
+        assert "default" in schema["properties"] and schema["required"] == ["default"]
+
+    def test_the_original_schema_is_not_changed(self) -> None:
+        original = Outer.model_json_schema()
+        strict_schema(original)
+        assert "required" not in original or original["required"] != ["items", "label"]
+
+
+class TestStrictFallback:
+    @respx.mock
+    async def test_a_schema_the_api_refuses_is_sent_once_without_strict_and_remembered(
+        self,
+    ) -> None:
+        refused = httpx.Response(
+            400, json={"error": {"code": "invalid_json_schema", "message": "nope"}}
+        )
+        route = respx.post(URL).mock(
+            side_effect=[
+                refused,
+                completion('{"intent": "a"}'),
+                completion('{"intent": "b"}'),
+            ]
+        )
+        p = provider()
+        first = await p.structured(request("classify"), Intent)
+        second = await p.structured(request("classify"), Intent)
+        stricts = [
+            json.loads(c.request.content)["response_format"]["json_schema"]["strict"]
+            for c in route.calls
+        ]
+        assert (first.value.intent, second.value.intent) == ("a", "b")
+        assert stricts == [True, False, False]  # tried strict once, then never again
+
+    @respx.mock
+    async def test_other_400s_are_not_retried(self) -> None:
+        route = respx.post(URL).respond(status_code=400, json={"error": {"code": "other"}})
+        with pytest.raises(LLMBadRequest):
+            await provider().structured(request("classify"), Intent)
+        assert route.call_count == 1
+
+
+class TestNumbersWhereTextIsExpected:
+    def test_a_rule_value_given_as_a_number_is_kept_as_text(self) -> None:
+        from covenantiq.ai.schemas.analysis import ExtractedValue
+
+        assert ExtractedValue(name="notice_days", value=30).value == "30"  # type: ignore[arg-type]
+        assert ExtractedValue(name="cap", value=1.5).value == "1.5"  # type: ignore[arg-type]
+        assert ExtractedValue(name="auto", value=True).value == "yes"  # type: ignore[arg-type]
+        assert ExtractedValue(name="x", value=None).value is None
+        assert ExtractedValue(name="x", value="twelve months").value == "twelve months"
 
 
 async def test_token_counts_are_an_estimate_not_a_call() -> None:

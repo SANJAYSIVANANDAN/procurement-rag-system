@@ -181,7 +181,10 @@ background task. Follow it live at `stream_url` (below), or read the finished re
   `CIQ_LLM_MODEL_DEFAULT=<a model you have access to>` and `OPENAI_API_KEY` (the key and
   `CIQ_OPENAI_COMPAT_BASE_URL` are shared with the OpenAI embeddings). Routes can name other models in
   `config/llm_routes.yaml`; `effort` is sent as `reasoning_effort` (`xhigh` and `max` become `high`),
-  so for a model without that parameter set `CIQ_OPENAI_SEND_EFFORT=false`. `covenantiq check-llm` makes
+  so for a model without that parameter (for example `gpt-4o-mini`) set `CIQ_OPENAI_SEND_EFFORT=false`.
+  Model ids are lowercase and case-sensitive. Compose passes `CIQ_LLM_MODEL_DEFAULT` and
+  `CIQ_OPENAI_SEND_EFFORT` into every backend container; after changing `.env`,
+  `docker compose up -d` recreates them. `covenantiq check-llm` makes
   one tiny streamed and one structured call and prints the model and token counts (never the key).
   Contract text is sent to OpenAI. Answers and analyses were designed and measured against Anthropic's
   models; with OpenAI the prompts are the same, but their quality and cost are unmeasured. `ANTHROPIC_API_KEY` is required unless the provider

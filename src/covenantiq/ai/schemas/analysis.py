@@ -6,9 +6,9 @@ and enforced by truncation afterwards, not by the schema, because a reply that i
 long should not be thrown away.
 """
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ExtractedValue(BaseModel):
@@ -17,6 +17,17 @@ class ExtractedValue(BaseModel):
 
     name: str
     value: str | None = None
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def _text(cls, raw: Any) -> Any:
+        """A number or a yes/no is the value as the contract states it, written as text: some
+        models return `30` where others return `"30"`."""
+        if isinstance(raw, bool):
+            return "yes" if raw else "no"
+        if isinstance(raw, (int, float)):
+            return str(raw)
+        return raw
 
 
 class RuleAssessment(BaseModel):

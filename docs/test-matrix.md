@@ -38,10 +38,12 @@ Paths are relative to `tests/`.
 
 ## Not done
 
-- **`tests/e2e/test_full_flow.py`**: upload, ready, chat, analyze, assess, compare through a running
-  Compose stack. It needs the backend image rebuilt and the worker stack up; the pieces run in the
-  tests above (ingestion tasks in `test_worker_flow`, chat in `test_chat_api`, analysis, assessment and
-  comparison in `integration/vendor/`), and the pages against a live API in `e2e/test_ui_flow.py`.
+- **Nothing here is run by CI yet.** `e2e/test_full_flow.py` (opt-in, `CIQ_E2E_FLOW=1`) drives a
+  running Compose stack with real providers: four synthetic contracts for two vendors uploaded, read
+  and indexed, a grounded answer with citations over the live stream, a follow-up, a question the
+  documents cannot answer, history, a contract analysis, two vendor assessments, a comparison, and every
+  UI page rendered with that data. It spends real tokens (cents with a small model) and was run
+  against the stack with OpenAI `gpt-4o-mini` and `text-embedding-3-small`.
 - **Ten consecutive CI runs without a flaky failure**, and **a suite under ten minutes in CI**: the
   integration suite is not in CI yet (M18), and locally the whole suite takes about 30 minutes.
 - **Tuning the thresholds from the evaluation**: the offline numbers come from fake providers, so

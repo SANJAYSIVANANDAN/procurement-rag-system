@@ -23,7 +23,7 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M14 — RAGAS evaluation | Code and tests complete, committed in `e63ecfe`; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
 | M15 — SSE streaming | Code and tests complete, committed in `e111890`; verified on real PostgreSQL and Redis and over real HTTP with `curl -N` (fake model); never streamed a real model's reply or through a proxy |
 | M16 — Streamlit UI | Code and tests complete, committed in `6f12c09`; all nine pages render against the real API (empty account) and against fakes with data; no real browser, no upload through the UI, no real model |
-| M17 — Integration testing | Tests and two fixes complete, committed with this milestone; the whole-stack flow test is not written; no CI evidence of flakiness or duration |
+| M17 — Integration testing | Tests and two fixes complete, committed with this milestone; the whole-stack flow test now exists (opt-in, passes on the Compose stack with real OpenAI); no CI evidence of flakiness or duration |
 | M18–M19 | Not started |
 
 ## Repository cleanup (before M1)
@@ -603,7 +603,7 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - Foreign document ids on a conversation are silently dropped (existing design, now tested): the earlier expectation of a 404 was wrong for it.
 
 ### Not done
-- **`tests/e2e/test_full_flow.py`** (the whole path through a Compose stack): not written, since it cannot be run here (the backend image is stale and the worker stack is not up). The pieces run in `test_worker_flow`, `test_chat_api`, `integration/vendor/` and `e2e/test_ui_flow.py`.
+- **`tests/e2e/test_full_flow.py`** was not written in M17; it was written afterwards and passes (see "Verified in Docker").
 - **Ten consecutive CI runs without a flaky failure, and a suite under ten minutes in CI:** the integration suite is not in CI yet (M18) and takes about 30 minutes here. One memory test failed once in an earlier full run and has not been explained (see M14); no run since has shown it.
 - **Tuning thresholds from the evaluation:** the offline numbers come from fake providers (see M14).
 - **Log scans cover chat only**, not ingestion, analysis or vendor runs.
@@ -626,6 +626,25 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **The model name is a guess from a web search** whose sources disagreed (they named `gpt-5.6-sol` and a GPT-6 model). Change `CIQ_LLM_MODEL_DEFAULT` to whatever the account lists.
 - **Quality and cost:** the prompts, the citation validator and the evaluation thresholds were written and tuned against Anthropic's models; none of them has run against an OpenAI model. Nothing in M14's offline baseline depends on the provider.
 - **Anthropic:** its adapter is unchanged and also never called (no key).
+
+### Verified in Docker (Compose stack, real OpenAI `gpt-4o-mini` and `text-embedding-3-small`)
+- **Rebuilt images** (backend and frontend; the backend had been stale since M8) and recreated the stack over the 22-hour-old volumes: the migration service upgraded the old database, all services healthy, `/health/ready` ok. `covenantiq check-llm` and `check-embeddings` pass inside the container (first real model call of the project: streaming and structured output; embeddings 1024-wide, related 0.69 against unrelated 0.07).
+- **`tests/e2e/test_full_flow.py`** (new, opt-in) passes, 9 steps in about 2.5 minutes: register and sign in; two vendors; four synthetic contracts (Word files) uploaded, extracted by Docling in the worker, chunked and embedded; a question answered with a validated citation over the live stream (grounded); a follow-up; a question the documents cannot answer (declined, no invented figure); history reloaded with a fresh client; a contract analysis (29 findings, 7 of them insufficient evidence); both vendors assessed (Acme 10, Globex 22 and provisional); a comparison with a narrative and a suppressed ranking because Globex is provisional; **every UI page rendered against that real data** (finding cards, citations and grounding badge, dashboard counting 4 ready documents).
+- **Analysis quality against the evaluation labels** (first real-model signal, one contract, `acme_saas`): 16 of 23 rules got exactly the labelled status. All 7 differences are `insufficient_evidence` where the label says `absent` (6) or `acceptable` (1, governing law): it declined to assert, never asserted a wrong risk. One contract, one run: not a measurement.
+- **Logs:** after the final run no API key (`sk-` prefix: 0 hits) and none of the contract text in 42,000 lines of container logs; the only errors and warnings are from the two failed runs described below.
+
+### Found and fixed in Docker
+- **Compose did not pass `CIQ_LLM_MODEL_DEFAULT` or `CIQ_OPENAI_SEND_EFFORT`** to the containers, so they would have ignored the model in `.env` and asked OpenAI for `claude-opus-5-5`. Both are in the backend environment now.
+- **`.env` had `GPT-4o-mini`**; OpenAI model ids are lowercase. Corrected to `gpt-4o-mini` (and `CIQ_OPENAI_SEND_EFFORT=false`, since that model has no reasoning effort).
+- **Contract analysis failed (`ANALYSIS_DEGRADED`)**: 19 of 23 rules returned unusable structure. The adapter's new log of invalid fields (names only, never values) showed `gpt-4o-mini` returning numbers where a text value was expected, and statuses outside the allowed list. Fixed two ways: the adapter now requests OpenAI's **strict** structured output (closed schema, every field required, the API enforces the allowed values; a schema the API refuses is retried once without strict and remembered), and extracted values given as numbers or yes/no are kept as text. After that the analysis succeeds.
+- A first-request connection reset when the test client used `localhost` from Windows (Docker Desktop's port forward); `127.0.0.1` is reliable. Not an API fault.
+
+### Not verified in Docker
+- The **reranker** is off (`CIQ_RERANK_PROVIDER=none`), so retrieval was tested without reranking, and the evidence gate used its stricter fallback thresholds ("reranking was skipped"). I stopped the old reranker container to free memory; it is not part of this configuration.
+- **Anthropic** was not used. **Cost** was not measured (the run used a few hundred thousand tokens at most of `gpt-4o-mini`; the exact figure was not read from the OpenAI dashboard).
+- **One contract's analysis** was compared with labels; vendor assessment and chat quality were checked only for sanity, not scored. The offline evaluation (M14) still uses fakes; the full RAGAS run has not been made, though a key now exists.
+- **A real browser** (see M16), **worker kill and DLQ replay in this stack**, and the production Compose file (`docker-compose.prod.yml` is still a skeleton for M19).
+- The stack is **still running** on this machine with the new images.
 
 ## Reranking is optional (decision recorded)
 

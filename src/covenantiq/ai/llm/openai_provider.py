@@ -5,20 +5,22 @@ Written on `httpx` (as the OpenAI embedding provider is), so no SDK is needed. R
     `temperature`, `top_p` or other sampling parameter (reasoning models reject them)
   * `reasoning_effort` is sent from the route's effort when `send_effort` is on; turn it off
     (`CIQ_OPENAI_SEND_EFFORT=false`) for a model or server that has no such parameter
-  * structured answers use `response_format: json_schema` without `strict`, and are validated by
-    the pydantic schema here: strict mode forbids optional fields, which our schemas have
+  * structured answers use `response_format: json_schema` in strict mode (the schema is closed and
+    every field required, see `strict_schema`) so the API enforces the allowed values; a schema the
+    API refuses is sent once without `strict`. Either way pydantic validates the answer here
   * `finish_reason` is checked before any content is used: `length` and `content_filter`, and a
     `refusal` field, become errors
   * no automatic retries here; `RetryingLLMProvider` retries, and only before the first token
 Errors are typed and never carry prompt text or credentials in their message.
 """
 
+import copy
 import json
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from covenantiq.ai.llm.base import (
     LLMBadRequest,
@@ -33,6 +35,9 @@ from covenantiq.ai.llm.base import (
 )
 from covenantiq.ai.llm.routes import RouteTable
 from covenantiq.core.errors import CovenantError
+from covenantiq.core.logging import get_logger
+
+log = get_logger(__name__)
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 CONNECT_TIMEOUT_SECONDS = 10.0
@@ -50,6 +55,42 @@ def map_status(status: int) -> CovenantError:
 
 def _transport_error(exc: httpx.HTTPError) -> CovenantError:
     return LLMUnavailable(f"the model provider is unreachable ({type(exc).__name__})")
+
+
+def strict_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """A pydantic JSON schema in the form OpenAI's strict structured output accepts: every object
+    closed (`additionalProperties: false`) with every property required (an optional field is
+    still required, and may be null where its type allows it), and no `default` values."""
+    out = copy.deepcopy(schema)
+
+    def walk(node: Any) -> None:
+        if not isinstance(node, dict):
+            return
+        node.pop("default", None)
+        if "properties" in node:
+            node["required"] = list(node["properties"])
+            node["additionalProperties"] = False
+            for child in node["properties"].values():
+                walk(child)
+        for key in ("items", "additionalProperties"):
+            walk(node.get(key))
+        for key in ("anyOf", "allOf", "oneOf"):
+            for child in node.get(key) or []:
+                walk(child)
+
+    walk(out)
+    for definition in (out.get("$defs") or {}).values():
+        walk(definition)
+    return out
+
+
+def _rejected_schema(response: httpx.Response) -> bool:
+    """Whether a 400 says the JSON schema itself cannot be used in strict mode."""
+    try:
+        error = response.json().get("error") or {}
+    except ValueError:
+        return False
+    return error.get("code") == "invalid_json_schema"
 
 
 def _usage(raw: Any) -> LLMUsage:
@@ -86,6 +127,7 @@ class OpenAIProvider:
         )
         self._routes = routes
         self._send_effort = send_effort
+        self._lenient: set[str] = set()  # schemas this server would not take in strict mode
         self.model_name = routes.model_for("answer")
 
     def _body(self, request: LLMRequest) -> dict[str, Any]:
@@ -144,24 +186,38 @@ class OpenAIProvider:
         _check_finish(finish, request)
         yield LLMStreamEvent("stop", stop_reason=finish)
 
-    async def structured(self, request: LLMRequest, schema: type[T]) -> StructuredResult[T]:
+    def _strict_for(self, schema: type[BaseModel]) -> bool:
+        return schema.__name__ not in self._lenient
+
+    async def _post_structured(
+        self, request: LLMRequest, schema: type[BaseModel], *, strict: bool
+    ) -> httpx.Response:
+        json_schema = schema.model_json_schema()
         body = {
             **self._body(request),
             "response_format": {
                 "type": "json_schema",
                 "json_schema": {
                     "name": schema.__name__,
-                    "schema": schema.model_json_schema(),
-                    "strict": False,
+                    "schema": strict_schema(json_schema) if strict else json_schema,
+                    "strict": strict,
                 },
             },
         }
         try:
-            response = await self._client.post(
+            return await self._client.post(
                 "/chat/completions", json=body, timeout=self._timeout(request)
             )
         except httpx.HTTPError as exc:
             raise _transport_error(exc) from None
+
+    async def structured(self, request: LLMRequest, schema: type[T]) -> StructuredResult[T]:
+        response = await self._post_structured(request, schema, strict=self._strict_for(schema))
+        if response.status_code == 400 and _rejected_schema(response) and self._strict_for(schema):
+            # strict mode refused this schema: remember, and use the model's best effort instead
+            log.warning("llm.strict_schema_rejected", schema=schema.__name__)
+            self._lenient.add(schema.__name__)
+            response = await self._post_structured(request, schema, strict=False)
         if response.status_code >= 400:
             raise map_status(response.status_code)
         try:
@@ -175,7 +231,15 @@ class OpenAIProvider:
         _check_finish(choice.get("finish_reason"), request)
         try:
             value = schema.model_validate_json(message.get("content") or "")
-        except ValidationError:
+        except ValidationError as exc:
+            # which fields were wrong, never their values (they may quote the contract)
+            log.warning(
+                "llm.structured_invalid",
+                route=request.route,
+                problems=[
+                    f"{'.'.join(str(p) for p in e['loc'])}: {e['type']}" for e in exc.errors()[:8]
+                ],
+            )
             raise LLMRefused(
                 f"The {request.route} answer could not be read as the expected structure."
             ) from None
