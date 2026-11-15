@@ -421,7 +421,7 @@ docker compose exec api covenantiq check-rerank
 - **`rerank failed: Cohere rejected the API key`:** wrong key, or the key lacks rerank access. The
   caller keeps the fused order meanwhile, and after three failures it stops calling for 30 seconds.
 - **HTTP 429:** a rate limit (trial keys are limited). Same fallback; use a production key.
-- **Not a Voyage key:** `CIQ_RERANK_PROVIDER=voyage` is not implemented yet and fails at start-up.
+- **Not a Voyage key:** there is no Voyage reranker; `CIQ_RERANK_PROVIDER` accepts `none` (the default), `cohere`, `cross_encoder` and `fake`.
 - **Which model:** `rerank-v5.0-fast` for latency, `rerank-v5.0-pro` for quality. Changing it needs
   no migration; reranking has no stored state. The Ettin container is not needed (and is not
   started) with this provider.

@@ -1,5 +1,5 @@
-"""Memory through the conversation service: the ownership check comes before Redis, extra providers
-(the V2 extension point) are merged and fed, and the factory applies the settings."""
+"""Memory through the conversation service: the ownership check comes before Redis, and the factory
+applies the settings."""
 
 from typing import Any
 from uuid import UUID
@@ -13,18 +13,14 @@ from covenantiq.core.config import Settings
 from covenantiq.core.errors import NotFound
 from covenantiq.db.scope import OwnershipScope
 from covenantiq.memory import (
-    CompletedTurn,
-    ConversationState,
     MemoryManager,
     Reconstructor,
     SessionMemoryProvider,
-    Summarizer,
 )
 from covenantiq.memory.factory import build_memory_manager
 from covenantiq.services.conversation_service import ConversationService
 from covenantiq.services.dto import Principal
 from tests.integration.memory.helpers import (
-    Memory,
     UowFactory,
     build,
     exchange,
@@ -53,7 +49,7 @@ class TestOwnershipBeforeRedis:
         done = await exchange(uow_factory, alice, conversation, "Question?", "Answer.")
         await memory.manager.record_turn(alice, conversation, done)
 
-        context = await service.memory_context(principal(alice), conversation, "next question")
+        context = await service.memory_context(principal(alice), conversation)
 
         assert texts(context.recent_turns) == ["Question?", "Answer."]
 
@@ -90,51 +86,6 @@ class TestOwnershipBeforeRedis:
         conversation = await new_conversation(uow_factory, alice)
         with pytest.raises(RuntimeError, match="not configured"):
             await ConversationService(uow_factory).memory_context(principal(alice), conversation)
-
-
-class StubProvider:
-    """What a V2 semantic or episodic provider will look like to the manager."""
-
-    name = "stub"
-
-    def __init__(self) -> None:
-        self.loaded: list[str | None] = []
-        self.recorded: list[CompletedTurn] = []
-
-    async def load(
-        self, scope: OwnershipScope, state: ConversationState, query: str | None
-    ) -> dict[str, Any]:
-        self.loaded.append(query)
-        return {"facts": ["the supplier is Acme"]}
-
-    async def record_turn(
-        self, scope: OwnershipScope, conversation_id: UUID, turn: CompletedTurn
-    ) -> None:
-        self.recorded.append(turn)
-
-
-class TestExtensionProviders:
-    async def test_extra_providers_are_merged_into_extensions_and_fed_every_turn(
-        self, uow_factory: UowFactory, redis_client: Redis, redis_env: str
-    ) -> None:
-        base: Memory = build(uow_factory, redis_client, redis_env)
-        stub = StubProvider()
-        manager = MemoryManager(
-            base.provider, Summarizer(FakeLLMProvider()), uow_factory, extras=[stub]
-        )
-        scope = await new_user(uow_factory)
-        conversation = await new_conversation(uow_factory, scope)
-        done = await exchange(uow_factory, scope, conversation, "Q", "A")
-        await manager.record_turn(scope, conversation, done)
-        state = await base.reconstructor.state(scope, conversation)
-        assert state is not None
-
-        context = await manager.load(scope, state, "who is the supplier?")
-
-        assert context.extensions == {"stub": {"facts": ["the supplier is Acme"]}}
-        assert stub.loaded == ["who is the supplier?"]
-        assert stub.recorded == [done]
-        assert texts(context.recent_turns) == ["Q", "A"]  # the session window is unaffected
 
 
 class TestFactory:

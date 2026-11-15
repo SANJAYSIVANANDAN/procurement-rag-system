@@ -3,6 +3,7 @@ import math
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from covenantiq.ai.rerank import RerankRejected, RerankUnavailable, build_reranker, squash
 from covenantiq.ai.rerank.fake import LexicalOverlapReranker
@@ -272,10 +273,9 @@ class TestFactory:
         settings = self.settings(rerank_provider="cross_encoder", rerank_model=VOYAGE_RERANK_MODEL)
         assert settings.rerank_model == ETTIN_RERANK_MODEL
 
-    def test_voyage_is_not_built_yet_and_says_so(self) -> None:
-        settings = self.settings(rerank_provider="voyage", voyage_api_key="pa-test")
-        with pytest.raises(NotImplementedError, match="cross_encoder"):
-            build_reranker(settings)
+    def test_there_is_no_voyage_reranker(self) -> None:
+        with pytest.raises(ValidationError):
+            self.settings(rerank_provider="voyage", voyage_api_key="pa-test")
 
     def test_the_timeout_and_url_come_from_settings(self) -> None:
         settings = self.settings(

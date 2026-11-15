@@ -1031,9 +1031,9 @@ pending/streaming messages older than 10 minutes. Safe from every replica at onc
 **Goal**: follow-up questions work without sending the whole history every time, and losing Redis
 costs only latency.
 
-- **Layered and extensible**: a `MemoryManager` merges contributions from providers into
-  `MemoryContext(summary, recent_turns, extensions)`; V1 has one provider (Redis session window);
-  semantic/episodic/entity memory could be added without touching graphs or services.
+- **One layer in V1**: a `MemoryManager` returns `MemoryContext(summary, recent_turns)` from the
+  Redis session window. An extension point for semantic memory was removed as unused; add it when
+  it is needed.
 - **Window**: turns of completed exchanges up to `memory_window_tokens` (3000), most recent kept.
 - **Rolling summary** (`memory_summary_tokens` 600): when turns overflow the window, a background
   task (not on the reply's critical path) summarizes `previous summary + overflowed turns` with a

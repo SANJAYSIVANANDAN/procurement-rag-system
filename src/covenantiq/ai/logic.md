@@ -28,7 +28,7 @@ Adapters for every external model: the chat/analysis LLM, the embedding model an
 | `cohere.py` | Hosted reranker. |
 | `server.py` + `remote.py` | A **separate container** holds the cross-encoder model (PyTorch). The API and workers call it over HTTP via `remote.py`, so heavy CPU work never blocks an event loop. |
 | `breaker.py` | Circuit breaker: 3 failures opens it for 30 s, then retries. |
-| `fake.py`, `factory.py` | Test fake; chooses `none`, `cohere`, `cross_encoder` (the reranker container, via `remote.py`) or `fake`. |
+| `fake.py`, `factory.py` | Test fake; chooses `none` (the default), `cohere`, `cross_encoder` (the reranker container, via `remote.py`) or `fake`. |
 
 ### `schemas/`
 `analysis.py`, `vendor.py`, `chat.py`: what the model must return. **No numeric scores anywhere**: the model returns categories (status, confidence level) and quotes; scores and rankings are computed in code.

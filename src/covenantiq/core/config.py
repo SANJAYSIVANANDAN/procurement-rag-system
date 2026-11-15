@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     embedding_model: str = "voyage-law-2"
     embedding_dim: PositiveInt = 1024
     embedding_batch_size: PositiveInt = 64
-    rerank_provider: Literal["voyage", "cohere", "cross_encoder", "fake", "none"] = "voyage"
+    rerank_provider: Literal["cohere", "cross_encoder", "fake", "none"] = "none"
     rerank_model: str = VOYAGE_RERANK_MODEL
     # cross_encoder: where the separate reranker process listens, and how long a caller waits
     # before keeping the fused order instead (spec 19.8).
@@ -205,10 +205,8 @@ class Settings(BaseSettings):
                 "OPENAI_API_KEY (or CIQ_OPENAI_COMPAT_API_KEY) is required "
                 "when CIQ_LLM_PROVIDER=openai"
             )
-        if "voyage" in (self.embedding_provider, self.rerank_provider) and (
-            self.voyage_api_key is None
-        ):
-            problems.append("VOYAGE_API_KEY is required when a voyage provider is selected")
+        if self.embedding_provider == "voyage" and self.voyage_api_key is None:
+            problems.append("VOYAGE_API_KEY is required when CIQ_EMBEDDING_PROVIDER=voyage")
         if self.rerank_provider == "cohere" and self.cohere_api_key is None:
             problems.append("COHERE_API_KEY is required when CIQ_RERANK_PROVIDER=cohere")
         if self.embedding_provider == "openai_compat" and not (

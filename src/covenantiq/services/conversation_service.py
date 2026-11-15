@@ -323,9 +323,7 @@ class ConversationService:
 
     # ---- memory -----------------------------------------------------------------------------
 
-    async def memory_context(
-        self, principal: Principal, conversation_id: UUID, query: str | None = None
-    ) -> MemoryContext:
+    async def memory_context(self, principal: Principal, conversation_id: UUID) -> MemoryContext:
         """The conversation's memory for the next turn. Ownership is checked in PostgreSQL first;
         Redis is never touched for a conversation the caller does not own."""
         if self._memory is None:
@@ -339,7 +337,7 @@ class ConversationService:
                 summary=conversation.summary,
                 summary_through_seq=conversation.summary_through_seq,
             )
-        return await self._memory.load(scope, state, query)
+        return await self._memory.load(scope, state)
 
     @staticmethod
     async def _owned(uow: UnitOfWork, scope: OwnershipScope, conversation_id: UUID) -> Conversation:

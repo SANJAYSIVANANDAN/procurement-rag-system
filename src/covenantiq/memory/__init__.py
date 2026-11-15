@@ -3,7 +3,6 @@ from covenantiq.memory.base import (
     CompletedTurn,
     ConversationState,
     MemoryContext,
-    MemoryProvider,
     SessionTurn,
 )
 from covenantiq.memory.manager import MemoryManager
@@ -17,7 +16,6 @@ __all__ = [
     "ConversationState",
     "MemoryContext",
     "MemoryManager",
-    "MemoryProvider",
     "Reconstructor",
     "SessionMemoryProvider",
     "SessionTurn",

@@ -11,7 +11,7 @@ PostgreSQL.
 """
 
 import asyncio
-from collections.abc import Callable, Coroutine, Sequence
+from collections.abc import Callable, Coroutine
 from typing import Any
 from uuid import UUID
 
@@ -23,7 +23,6 @@ from covenantiq.memory.base import (
     CompletedTurn,
     ConversationState,
     MemoryContext,
-    MemoryProvider,
     SessionTurn,
 )
 from covenantiq.memory.session_redis import SessionMemoryProvider
@@ -40,29 +39,22 @@ class MemoryManager:
         session: SessionMemoryProvider,
         summarizer: Summarizer,
         uow_factory: Callable[[], UnitOfWork],
-        extras: Sequence[MemoryProvider] = (),
         *,
         spawn: Spawn | None = None,
     ) -> None:
         self._session = session
         self._summarizer = summarizer
         self._uow_factory = uow_factory
-        self._extras = list(extras)
         self._spawn: Spawn = spawn or asyncio.ensure_future
         self._tasks: set[asyncio.Task[None]] = set()
         self._locks: dict[UUID, asyncio.Lock] = {}
 
-    async def load(
-        self, scope: OwnershipScope, state: ConversationState, query: str | None = None
-    ) -> MemoryContext:
+    async def load(self, scope: OwnershipScope, state: ConversationState) -> MemoryContext:
         """The caller has already checked, in PostgreSQL, that the conversation is the user's."""
         loaded = await self._session.load_session(scope, state)
         if loaded.overflow:
             self._schedule(scope, state.conversation_id, loaded.overflow)
-        context = loaded.context
-        for provider in self._extras:
-            context.extensions[provider.name] = await provider.load(scope, state, query)
-        return context
+        return loaded.context
 
     async def record_turn(
         self, scope: OwnershipScope, conversation_id: UUID, turn: CompletedTurn
@@ -70,8 +62,6 @@ class MemoryManager:
         result = await self._session.record_turn(scope, conversation_id, turn)
         if result.overflow:
             self._schedule(scope, conversation_id, result.overflow)
-        for provider in self._extras:
-            await provider.record_turn(scope, conversation_id, turn)
 
     async def invalidate(self, scope: OwnershipScope, conversation_id: UUID) -> None:
         """Drop the session from Redis; the next load rebuilds it from PostgreSQL."""

@@ -109,7 +109,7 @@ class ChatNodes:
         d = self._d
         loaded = await d.chat_store.conversation_state(state["scope"], state["conversation_id"])
         try:
-            memory = await d.memory.load(state["scope"], loaded, state["question"])
+            memory = await d.memory.load(state["scope"], loaded)
         except Exception:
             # Redis trouble costs the recent turns, not the answer: carry on with the summary.
             log.warning("chat.memory_unavailable", exc_info=True)

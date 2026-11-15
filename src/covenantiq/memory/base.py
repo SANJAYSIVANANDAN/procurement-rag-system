@@ -1,20 +1,15 @@
 """What conversation memory hands to the chat graph (spec 23.9).
 
-Memory is layered so later versions can add providers (semantic, episodic, entity) without touching
-graph or service code: the manager merges every provider's contribution into `MemoryContext`, and
-the prompt builder renders whatever is in `extensions`. Version 1 has one provider, the Redis
-session window, with PostgreSQL as the durable source of truth: losing Redis costs latency, never
-correctness.
+Version 1 has one kind of memory: the Redis session window (recent turns plus a rolling summary),
+with PostgreSQL as the durable source of truth. Losing Redis costs latency, never correctness.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, Protocol
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
-
-from covenantiq.db.scope import OwnershipScope
 
 # A change to the stored turn or meta format bumps this; a mismatch rebuilds from PostgreSQL.
 SCHEMA_VERSION = 1
@@ -57,16 +52,3 @@ class ConversationState:
 class MemoryContext:
     summary: str | None
     recent_turns: list[SessionTurn]
-    extensions: dict[str, Any] = field(default_factory=dict)  # V2: semantic, episodic, entities
-
-
-class MemoryProvider(Protocol):
-    name: str
-
-    async def load(
-        self, scope: OwnershipScope, state: ConversationState, query: str | None
-    ) -> dict[str, Any]: ...
-
-    async def record_turn(
-        self, scope: OwnershipScope, conversation_id: UUID, turn: CompletedTurn
-    ) -> None: ...

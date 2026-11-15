@@ -115,7 +115,7 @@ class TestLoad:
         assert texts(context.recent_turns) == [t for pair in PAIRS for t in pair]
         assert [t.role for t in context.recent_turns] == ["user", "assistant"] * 3
         assert [t.seq for t in context.recent_turns] == [1, 2, 3, 4, 5, 6]
-        assert context.summary is None and context.extensions == {}
+        assert context.summary is None
 
     async def test_deleting_the_redis_keys_gives_the_same_window_back(
         self, uow_factory: UowFactory, redis_client: Redis, redis_env: str, memory: Memory
@@ -331,7 +331,7 @@ class TestOnlyFinishedExchangesAreMemory:
         scope = await new_user(uow_factory)
         conversation = await new_conversation(uow_factory, scope)
         pending = await exchange(uow_factory, scope, conversation, "First?", "A1.", complete=False)
-        await memory.manager.load(scope, await state_of(memory, scope, conversation), "First?")
+        await memory.manager.load(scope, await state_of(memory, scope, conversation))
         async with uow_factory() as uow:  # the reply completes, then is recorded (as finalize does)
             reply = (await uow.messages.recent(scope, conversation, 10))[-1]
             await uow.messages.complete(

@@ -84,9 +84,7 @@ class FakeMemory:
         self.fail_load = False
         self.fail_record = False
 
-    async def load(
-        self, scope: object, state: ConversationState, query: str | None = None
-    ) -> MemoryContext:
+    async def load(self, scope: object, state: ConversationState) -> MemoryContext:
         if self.fail_load:
             raise ConnectionError("redis is down")
         return self.context

@@ -21,14 +21,9 @@ def build_reranker(settings: Settings) -> Reranker | None:
             timeout_seconds=settings.rerank_timeout_seconds,
             max_documents=settings.rerank_max_documents,
         )
-    if settings.rerank_provider == "cross_encoder":
-        return RemoteReranker(
-            settings.rerank_url,
-            model=settings.rerank_model,
-            timeout_seconds=settings.rerank_timeout_seconds,
-            max_documents=settings.rerank_max_documents,
-        )
-    raise NotImplementedError(
-        "the Voyage reranker is not implemented yet; use CIQ_RERANK_PROVIDER=cohere, "
-        "cross_encoder, fake or none"
+    return RemoteReranker(
+        settings.rerank_url,
+        model=settings.rerank_model,
+        timeout_seconds=settings.rerank_timeout_seconds,
+        max_documents=settings.rerank_max_documents,
     )

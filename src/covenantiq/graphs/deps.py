@@ -85,9 +85,7 @@ class ChatPersistencePort(Protocol):
 
 
 class MemoryPort(Protocol):
-    async def load(
-        self, scope: Scope, state: ConversationState, query: str | None = None
-    ) -> MemoryContext: ...
+    async def load(self, scope: Scope, state: ConversationState) -> MemoryContext: ...
 
     async def record_turn(
         self, scope: Scope, conversation_id: UUID, turn: CompletedTurn

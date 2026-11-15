@@ -646,6 +646,14 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in Â
 - **A real browser** (see M16), **worker kill and DLQ replay in this stack**, and the production Compose file (`docker-compose.prod.yml` is still a skeleton for M19).
 - The stack is **still running** on this machine with the new images.
 
+## Cleanup of code V1 does not need (after the Docker check)
+
+- **Removed:** the memory extension hook (`MemoryProvider`, `MemoryContext.extensions`, the `extras` argument of `MemoryManager`, and the `query` argument of `load` and `memory_context`, which only fed it) and its test; the "Voyage reranker is not implemented" branch. `voyage` is no longer a valid `CIQ_RERANK_PROVIDER`, and the default is now `none` (it was `voyage`, which failed at start-up); `.env.example` and `docker-compose.yml` follow. `doculens-ai-reference.md` (notes on another project, referenced nowhere) is deleted.
+- **Kept on purpose:** the Voyage embeddings, Cohere reranker, Anthropic adapter and local reranker container. They are V1 features and tested with mocks, but none has been called against its real service.
+- **Docs updated:** `memory/logic.md`, `ai/logic.md`, runbook, INTERVIEW_PREP.
+- **Checked:** ruff, mypy, import-linter pass; 1,403 unit and 615 integration tests pass (throwaway PostgreSQL and Redis containers, not the app's data); images rebuilt, `/health/ready` ok, and `tests/e2e/test_full_flow.py` passes (9 steps) against the rebuilt stack with real OpenAI.
+- A dead-code scanner was not run (installing one was declined), so this was found by reading and searching, not proven exhaustive.
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
