@@ -1,5 +1,7 @@
 [importlinter]
-root_package = covenantiq
+root_packages =
+    covenantiq
+    frontend
 include_external_packages = False
 
 # Encodes the "must not import" column of PROJECT_SPEC.md section 8.2.
@@ -123,4 +125,18 @@ source_modules = covenantiq.api
 forbidden_modules =
     covenantiq.db.models
     covenantiq.db.repositories
+allow_indirect_imports = True
+
+[importlinter:contract:frontend]
+name = the UI talks to the API over HTTP and imports nothing of the backend
+type = forbidden
+source_modules = frontend
+forbidden_modules = covenantiq
+allow_indirect_imports = True
+
+[importlinter:contract:backend-not-frontend]
+name = the backend does not import the UI
+type = forbidden
+source_modules = covenantiq
+forbidden_modules = frontend
 allow_indirect_imports = True

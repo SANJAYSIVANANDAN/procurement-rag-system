@@ -216,6 +216,27 @@ background task. Follow it live at `stream_url` (below), or read the finished re
 - The listener uses its own Redis connection (`stream_redis`) because it waits up to 15 s inside
   `XREAD BLOCK`, longer than the 2 s timeout the other Redis clients use.
 
+## The web UI (Streamlit)
+
+`docker compose up` starts it at http://localhost:8501 (service `streamlit`, image `covenantiq-frontend`). It
+reads one setting, `CIQ_API_BASE_URL` (Compose sets `http://api:8000/api/v1`), and talks to nothing else.
+Without Docker: `uv run streamlit run frontend/app.py` (needs the API running; the default URL is
+`http://localhost:8000/api/v1`).
+
+| You see | It means |
+|---|---|
+| "The CovenantIQ API cannot be reached right now." | `CIQ_API_BASE_URL` is wrong, or the API is down or still starting. Check `GET /api/v1/health/ready`. |
+| Back at the sign-in page with "Your session ended" | The token expired (`CIQ_JWT_TTL_MINUTES`). Sign in again; conversations and documents are unchanged. |
+| An error with a "Reference: ..." line | Quote the reference: it is the API's request id, searchable in the API log (`request_id`). |
+| Chat shows "Working on it..." for a long time, then "The connection was lost" | The stream dropped three times in a row. A proxy may be buffering or closing it (see "Streaming a reply"). Regenerate; the answer may already be in the history. |
+| The dashboard numbers look old | They are cached for 30 seconds; a document's status refreshes on the next reload. |
+
+- **A refresh signs you out** (the token lives in the browser session only). Your conversations are kept.
+- **Uploads** show a progress bar per file, polled every 2 seconds. Leaving the page does not stop processing.
+- **Analysis and assessment** show a progress bar while the job runs; leaving the page does not stop the job, and the result is there when you come back.
+- **Tests:** `uv run pytest tests/unit/frontend` needs no server. With an API running,
+  `CIQ_E2E_UI=1 CIQ_API_BASE_URL=http://localhost:8000/api/v1 uv run pytest tests/e2e/test_ui_flow.py` renders every page against it.
+
 ## Contract analysis
 
 `POST /documents/{id}/analyze` queues a job on the `contract_analysis` queue (consumed by the

@@ -21,8 +21,9 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M12 — Contract analysis | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume) with a fake model and a scripted retriever; the real model has never been asked to assess a clause |
 | M13 — Vendor assessment and comparison | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
 | M14 — RAGAS evaluation | Code and tests complete, committed in `e63ecfe`; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
-| M15 — SSE streaming | Code and tests complete, committed with this milestone; verified on real PostgreSQL and Redis and over real HTTP with `curl -N` (fake model); never streamed a real model's reply or through a proxy |
-| M16–M19 | Not started |
+| M15 — SSE streaming | Code and tests complete, committed in `e111890`; verified on real PostgreSQL and Redis and over real HTTP with `curl -N` (fake model); never streamed a real model's reply or through a proxy |
+| M16 — Streamlit UI | Code and tests complete, committed with this milestone; all nine pages render against the real API (empty account) and against fakes with data; no real browser, no upload through the UI, no real model |
+| M17–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -547,6 +548,40 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **Streamlit** is the first real browser-side client (M16); the `Last-Event-ID` retry loop of spec 26.9 lives there.
 - The backend image still needs rebuilding (M9 to M15 dependencies and code).
 
+## M16 — Streamlit UI
+
+### Built
+- **`frontend/`**: `app.py` (navigation, theme CSS, sign-out; signed out there is only the login page), `api_client.py` (typed wrappers for every endpoint the UI uses, `ApiError`/`Unauthorized`/`Unreachable`, SSE stream request), `sse.py` (`stream_events` with up to three reconnects using `Last-Event-ID`, and `ReplyState` which folds events into draft, stages, citations and the validated final text), `presenters.py` (all wording, colours, grouping, exports, the comparison matrix), `state.py` (session, `call` with the 401 and error handling), `navigation.py`, `components/` (severity, citations, finding card, dimension card, common), `.streamlit/config.toml` (theme), and the nine pages in `pages/`.
+- **Pages:** Login/Register; Dashboard (KPIs, severity chart, vendor risk overview, recent activity); Document library (filters, row selection, quality warnings, analyze, open chat, edit, delete with confirmation); Upload (multi-file, vendor select or create, per-file progress polled every 2 s); Contract chat (document multiselect, conversation switcher, streamed answers, `[C#]` superscript badges linked to the sources panel, grounding badge, "Why this answer?", Regenerate, input disabled while streaming, earlier messages on demand); Contract risk analysis (job progress, findings by severity and category, status and severity filters, finding cards with evidence, obligations table, CSV and Markdown export, disclaimer); Vendors (list, create, edit, linked documents, assess with dependency message and progress, latest assessment with score bar, completeness, provisional badge, dimension cards, history); Vendor comparison (2 to 5 vendors, precondition messages with "Assess now", matrix with not-comparable cells shaded and explained, chart of comparable dimensions only, signal table, narrative); Conversation history (archived toggle, open, rename, archive).
+- **Import contracts:** the UI may not import `covenantiq` and the backend may not import the UI (15 contracts now). mypy covers `frontend/`.
+- **Build:** `docker/frontend.Dockerfile` (unchanged, now final), `make ui`, `streamlit`, `altair`, `respx` in the dev group, `frontend/requirements.txt` needs `streamlit>=1.50` (`width="stretch"` replaced the deprecated `use_container_width`).
+- **Docs:** `ADR-026` and a runbook section "The web UI (Streamlit)".
+
+### Verified
+- **Unit tests (63, `tests/unit/frontend`, no server):** the API client against mocked HTTP with `respx` (token, multipart upload, pagination, error mapping with request id, 401, unreachable, a refused stream); the SSE parser and reconnect (a dropped stream resumes with `Last-Event-ID` and repeats nothing, three reconnects end with a retryable error, an API error is not retried, pings ignored) and `ReplyState`; presenters (markers escaped and linked, grouping and filters, CSV and Markdown, the comparison matrix and chart data excluding not-comparable dimensions); Streamlit `AppTest` runs of the Login, Chat and History pages and of the whole app with a fake client (history with citations and badges, a question asked and streamed with the final text replacing the draft, a failed stream with a partial answer and Regenerate, a 409 explained, an expired token returning to login, the input disabled while streaming).
+- **Against the real API (opt-in `tests/e2e/test_ui_flow.py`, uvicorn with the fake model, real PostgreSQL and Redis):** a new account registers and signs in with the real client; all eight pages render without error with the response shapes the API actually returns; a vendor is created through the page; a question is asked, streamed over real HTTP and stored, and the same messages come back from the API. 3 passed.
+- **Real servers:** `streamlit run frontend/app.py` starts and answers its health endpoint; the Docker image builds, runs as the non-root user and imports every page.
+- **Lint, mypy (268 files) and 15 import contracts pass.**
+- **Full suite:** **1955 passed, 0 failed, 23 skipped (17 opt-in e2e, 3 opt-in live model, 3 opt-in UI e2e), 21 slow deselected; coverage 94% of `src/covenantiq`** (the frontend is not in the coverage figure) in 29 min 31 s, real PostgreSQL and Redis in throwaway containers.
+
+### Found and fixed along the way
+- `STAGE_LABEL` had `"validating"` twice with different meanings (a job's file check and a chat reply's citation check); the dictionaries are now separate (`stage_label` and `chat_stage_label`).
+- Streamlit 1.67 deprecates `use_container_width`; replaced with `width="stretch"` throughout.
+- The extraction-quality flags I first assumed did not exist under those names; the document page now reads `insufficient_text`, `ocr_needed_pages`, `injection_flagged_blocks` and the metadata's `injection_warning`.
+
+### Deviations from the spec
+- **Dashboard:** there is no endpoint for it, so the totals are computed in the UI from lists (findings of up to 30 ready documents, latest assessments of up to 20 vendors, cached 30 s). "Recent activity" shows the latest document updates, since no endpoint lists jobs.
+- **"Why this answer?"** uses what the stream reported (stages, number of citations and documents, grounding, output tokens); the API does not expose a message's retrieval trace, so retrieval scores and the evidence decision cannot be shown.
+- **Sign-in does not survive a refresh** (spec 27.3 says the token is re-entered in V1); history reloads after signing in.
+- **Document library "view details"** is a panel below the table rather than a drawer. Chat scope is changed with the document multiselect (a PATCH on the conversation), not a separate toggle.
+
+### Not yet verified
+- **A real browser.** AppTest runs pages headlessly and the server was only checked for its health endpoint; nothing was clicked in a browser, so layout, the superscript links to citations, the chart rendering, the file uploader and text streaming as seen by a person are unchecked. The Sign out button's click-through could not be driven in AppTest (a rerun leaves an empty tree there); the logout logic is tested directly.
+- **Pages with data against the real API.** The opt-in test used an empty new account, so findings, assessment, comparison and document pages were tested with fakes built from the API's schema, not with real analysis output. Uploading needs the worker stack and was not run through the UI.
+- **The full acceptance path** (register, upload, chat with citations, analyse, assess two vendors, compare, all through the UI) needs the Compose stack and a real model; it has not been run.
+- **Streaming through a real model and a proxy** (see M15).
+- The backend image still needs rebuilding (M9 to M15 dependencies and code); the frontend image was built and works.
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -686,8 +721,10 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Needs your decision:** whether an answer made only of `ungrounded` claims should abstain (see M14).
 - **Needs an Anthropic key (streaming):** ask one real question over an ingested contract and watch it with `curl -N` (time to first token, how the draft differs from the final text, whether citations validate).
 - **Needs a proxy to try:** the SSE endpoint behind nginx or a load balancer (buffering, idle timeout).
-- **Next milestone:** M16 (Streamlit UI), the first client of the stream, with the `Last-Event-ID` retry loop. M9 to M15 are complete but unmeasured on real data (see their "Not yet verified" sections).
+- **Needs a browser:** open http://localhost:8501 and click through every page (layout, citation links, charts, upload, sign out).
+- **Needs the Compose stack and a key:** the whole path through the UI, with documents, analysis, two vendors and a comparison (the acceptance criterion of M16).
+- **Next milestone:** M17. M9 to M16 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
-- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13), `e63ecfe` (M14). M15 is committed after it (see `git log`).
+- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13), `e63ecfe` (M14), `e111890` (M15). M16 is committed after it (see `git log`).
 - Slow tests (real Docling): `uv run pytest -m slow` (many minutes on the first run while models load; last run in M7).
-- Next: M16 — Streamlit UI.
+- Next: M17.

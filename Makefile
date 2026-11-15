@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck imports test check up down logs ps
+.PHONY: install lint format typecheck imports test check up down logs ps ui
 
 install:
 	uv sync
@@ -57,3 +57,6 @@ eval-baseline:
 # Real providers and RAGAS: costs money, needs keys and `uv sync --group eval`.
 eval-full:
 	uv run --group eval python -m eval.scripts.run_full
+
+ui:  ## the web UI on http://localhost:8501 (needs the API)
+	uv run streamlit run frontend/app.py
