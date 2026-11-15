@@ -1,0 +1,8 @@
+# How far a metric may move against the committed baseline before the offline evaluation fails
+# (spec 28.8). Values are absolute changes in the *worse* direction: a drop for a metric where higher
+# is better, a rise for one where lower is better (unsupported claims, false answers...). Moving in
+# the better direction never fails. 0.0 means the metric must not get worse at all.
+default_abs: 0.02
+
+metrics:
+  vendor_scoring_determinism: 0.0   # scoring the same signals twice must give the same result, always

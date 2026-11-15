@@ -19,6 +19,7 @@ from covenantiq.graphs.errors import graph_error
 from covenantiq.ingestion.chunking.tokens import estimate_tokens
 from covenantiq.memory.base import CompletedTurn, MemoryContext, SessionTurn
 from covenantiq.rag.abstention import abstention_message
+from covenantiq.rag.citations import count_markers
 from covenantiq.rag.context import build_context
 from covenantiq.rag.query_analysis import extract_keywords
 from covenantiq.rag.types import RetrievalRequest
@@ -243,11 +244,14 @@ class ChatNodes:
     async def validate_citations(self, state: ChatState) -> dict[str, Any]:
         get_stream_writer()({"event": "status", "stage": "verifying"})
         marker_map = state["context"].marker_map
-        result = self._d.citations.validate(state.get("draft_answer", "").strip(), marker_map)
+        draft = state.get("draft_answer", "").strip()
+        result = self._d.citations.validate(draft, marker_map)
         counts = {
             "invalid_markers": result.invalid_markers,
             "unsupported": result.unsupported,
             "unmarked_claims": result.unmarked_claims,
+            "markers": count_markers(draft),
+            "factual_sentences": sum(1 for c in result.sentences if c.markers or c.unmarked_claim),
         }
         if result.status == "abstained":
             return {"grounding_status": GroundingStatus.ABSTAINED, "validation": counts}

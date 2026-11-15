@@ -80,6 +80,11 @@ def _markers(text: str) -> list[str]:
     return [m.strip() for match in _MARKER.finditer(text) for m in match.group(1).split(",")]
 
 
+def count_markers(text: str) -> int:
+    """How many `[C#]` markers an answer carries (a marker like `[C1, C2]` counts as two)."""
+    return len(_markers(text))
+
+
 def _strip_markers(text: str) -> str:
     return " ".join(_MARKER.sub(" ", text).split())
 

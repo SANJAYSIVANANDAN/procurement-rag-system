@@ -256,6 +256,43 @@ until the job has succeeded).
 - Findings and assessments carry the disclaimer: automated analysis for decision support, not legal
   advice.
 
+## Evaluation
+
+Two runs, both from `eval/` (the design is in `PROJECT_SPEC.md` §28 and `docs/adr/ADR-024.md`).
+
+| | Offline | Full |
+|---|---|---|
+| Command | `make eval-offline` | `make eval-full` |
+| Providers | hash embeddings, lexical reranker, scripted model | the configured real ones, plus RAGAS |
+| Cost | free, about 90 s | paid, needs keys and `uv sync --group eval` |
+| Where | every CI run (`eval-offline` job) | `eval.yml` (manual and nightly), not required to merge |
+| Gate | fails on regression against `eval/baselines/offline_v1.0.0.json` | report only |
+
+- **Offline needs a migrated PostgreSQL with pgvector.** Set `CIQ_EVAL_DATABASE_URL` (it also falls
+  back to `CIQ_TEST_DATABASE_URL`, then `CIQ_DATABASE_URL`). The run creates its own user, ingests the
+  twelve contracts, and deletes everything it made, so it can share a database with other work; do not
+  point it at a production database. Run `covenantiq migrate` first or it will say so.
+- **A failure of the gate** prints a table of metric, baseline, current, change and allowed.
+  `regressed` means worse than the tolerance in `config/eval_tolerances.yaml`; `missing` means a metric
+  stopped being reported. If the change is intended (for example a retrieval improvement that moves
+  other numbers), update the baseline deliberately: `make eval-baseline NOTE="why"`, then commit it
+  with that reason in the message. Never edit the JSON by hand.
+- **The dataset is protected by checksums.** If the run refuses with "does not match its manifest",
+  a dataset file changed. To change the dataset on purpose, edit `eval/datasets/generate_v1.py`
+  (or add a new version, since an edit to an existing version breaks every baseline made on it), run
+  `make eval-dataset`, and commit the regenerated files; the baseline must then be rewritten.
+- **Reports** go to `eval/reports/` (ignored by git; CI uploads them as artifacts) as JSON with every
+  metric, its 95% interval and per-example results, plus a Markdown summary. They record the git
+  revision, dataset version and hash, prompt hashes, models per route, and the ruleset and scoring
+  versions.
+- **Reading the offline numbers:** they measure the deterministic logic under fake providers, not
+  quality. See `docs/eval/offline_v1.0.0.md` before quoting any of them. The full run's report has not
+  been made; targets in spec 28.7 are targets until it is.
+- **The full run asks before spending** and refuses fake providers. It writes the same report plus the
+  RAGAS metrics, and prints each spec target next to the measured value.
+- `python -m eval.scripts.build_dataset` shows what the real chunker makes of each contract (chunk
+  ids, pages, clause numbers); it cleans up after itself.
+
 ## Searching and tuning retrieval
 
 `covenantiq search` runs the retrieval engine and prints what it did. It prints passage text, so run

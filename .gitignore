@@ -31,3 +31,6 @@ logs/
 .idea/
 .vscode/
 .DS_Store
+
+# generated evaluation reports (uploaded as CI artifacts)
+eval/reports/

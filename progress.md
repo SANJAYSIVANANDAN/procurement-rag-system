@@ -7,20 +7,21 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | Milestone | Status |
 |---|---|
 | M1 — Repository setup and architecture skeleton | Done and committed |
-| M2 — Docker infrastructure | Committed, with fixes made after the first real run (RabbitMQ bootstrap, see "Docker verification"); stack builds and is healthy. The M2 fixes are uncommitted |
+| M2 — Docker infrastructure | Committed, with fixes made after the first real run (RabbitMQ bootstrap, see "Docker verification"); stack builds and is healthy. The M2 fixes were committed in `7d8411e` |
 | M3 — PostgreSQL and SQLAlchemy | Done and committed; the pgvector tests now pass on a real pgvector database |
 | M4 — Authentication | Done and committed; Redis rate limiting and RabbitMQ readiness verified against the real stack |
-| M5 — Document management | Code and tests complete, not committed; libmagic verified on Windows and in the Linux image (via the e2e upload) |
-| M6 — Celery and RabbitMQ | Code and tests complete, not committed; real-broker run found and fixed two bugs (DLQ commands, lost-worker jobs); dead-lettering, replay and the worker-kill drill verified |
-| M7 — Document extraction | Code and tests complete, not committed; verified with real Docling on Windows and on Linux (inside the image) |
-| M8 — Chunking and embeddings | Code and tests complete, not committed; vector writes verified on real pgvector; the real Voyage API is unverified |
-| M8+ — OpenAI embeddings, Ettin and Cohere rerankers | Code and tests complete, not committed; none verified against the real hosted APIs (no keys); Ettin reranker verified in its container |
-| M9 — pgvector and hybrid retrieval | Code and tests complete, not committed; verified on real pgvector with fake embeddings and a fake reranker; never run with real embeddings, a real reranker or real contracts |
-| M10 — Redis session memory | Code and tests complete, not committed; verified against real Redis and PostgreSQL; the model that writes summaries is a fake (the real adapter is M11) |
-| M11 — LangGraph chat orchestration | Code and tests complete, not committed; verified against real PostgreSQL and Redis with a fake model and a scripted retriever; the real Anthropic API has never been called |
-| M12 — Contract analysis | Code and tests complete, not committed; verified on real PostgreSQL (including a real checkpoint resume) with a fake model and a scripted retriever; the real model has never been asked to assess a clause |
-| M13 — Vendor assessment and comparison | Code and tests complete, not committed; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
-| M14–M19 | Not started |
+| M5 — Document management | Code and tests complete, committed in `7d8411e`; libmagic verified on Windows and in the Linux image (via the e2e upload) |
+| M6 — Celery and RabbitMQ | Code and tests complete, committed in `7d8411e`; real-broker run found and fixed two bugs (DLQ commands, lost-worker jobs); dead-lettering, replay and the worker-kill drill verified |
+| M7 — Document extraction | Code and tests complete, committed in `7d8411e`; verified with real Docling on Windows and on Linux (inside the image) |
+| M8 — Chunking and embeddings | Code and tests complete, committed in `7d8411e`; vector writes verified on real pgvector; the real Voyage API is unverified |
+| M8+ — OpenAI embeddings, Ettin and Cohere rerankers | Code and tests complete, committed in `7d8411e`; none verified against the real hosted APIs (no keys); Ettin reranker verified in its container |
+| M9 — pgvector and hybrid retrieval | Code and tests complete, committed in `7d8411e`; verified on real pgvector with fake embeddings and a fake reranker; never run with real embeddings, a real reranker or real contracts |
+| M10 — Redis session memory | Code and tests complete, committed in `22f2e8a`; verified against real Redis and PostgreSQL; the model that writes summaries is a fake (the real adapter is M11) |
+| M11 — LangGraph chat orchestration | Code and tests complete, committed in `72d8c56`; verified against real PostgreSQL and Redis with a fake model and a scripted retriever; the real Anthropic API has never been called |
+| M12 — Contract analysis | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume) with a fake model and a scripted retriever; the real model has never been asked to assess a clause |
+| M13 — Vendor assessment and comparison | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
+| M14 — RAGAS evaluation | Code and tests complete, **not committed**; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
+| M15–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -470,6 +471,46 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **Test suite time:** the integration suite has grown past ten minutes because every vendor test runs full analyses; sharing a seeded, assessed vendor between tests would cut it down.
 - The backend image still needs rebuilding (M9 to M13 dependencies and code).
 
+## M14 — RAGAS evaluation
+
+### Built
+- **`eval/` package** (at the repository root, covered by ruff and mypy): `dataset.py` (models, loader, manifest checksum enforcement), `datasets/generate_v1.py` (deterministic generator) and the dataset `eval/datasets/v1.0.0/` (12 synthetic contracts as text, 73 chat questions of which 15 are unanswerable, 6 follow-ups and 4 multi-document, complete findings labels for 12 contracts, 5 vendor cases, `manifest.yaml` with per-file SHA-256).
+- **Offline pipeline** (`extraction.py`, `scripted.py`, `pipeline.py`, `runner.py`): real ingestion (two-stage `IngestionService`), chunking, hybrid retrieval, evidence gate, chat graph, citation validator, contract analysis graph and vendor scoring, on a throwaway user in real PostgreSQL, with hash embeddings, a lexical reranker and a scripted model (labelled answer when the question has one; a fabricated claim when it does not; rule answers from the labels only if the labelled clause was retrieved). Everything it creates is deleted afterwards.
+- **Metrics** (`eval/metrics/`): ratios of (numerator, denominator) per example with a seeded bootstrap 95% interval: retrieval hit@k, MRR, non-LLM context precision and recall, citation correctness and validity, unsupported claim rate, abstention accuracy, false abstention and false answer rates, gate abstention, clause extraction accuracy, risk precision and recall, finding status accuracy, not-expected violations, vendor signal agreement, dimension order claims, scoring determinism.
+- **Gate** (`baseline.py`, `config/eval_tolerances.yaml`): compares a run with `eval/baselines/offline_v1.0.0.json` per metric, in the worse direction only (default 0.02, scoring determinism 0.0); missing metrics and runs with errors fail.
+- **Reports** (`report.py`): JSON and Markdown with git revision, dataset version and hash, prompt hashes, models per route, ruleset and scoring versions.
+- **Full run** (`run_full.py`, `ragas_adapter.py`): real providers (refuses fake ones), asks before spending, the same custom metrics plus RAGAS 0.4.4's six metrics through an adapter that lets RAGAS use our model and embedding providers; prints the spec 28.7 targets beside what was measured. RAGAS lives in an optional `eval` dependency group.
+- **Scripts and CI:** `eval/scripts/{run_offline,compare_to_baseline,run_full,build_dataset}.py`; `make eval-dataset | eval-offline | eval-compare | eval-baseline | eval-full`; an `eval-offline` job in `ci.yml` (pgvector service, migrate, run, compare, artifacts, step summary); `.github/workflows/eval.yml` (manual and nightly full run; needs secrets).
+- **Small source changes:** `rag/citations.py` gained `count_markers`; the chat graph's `validate_citations` records `markers` and `factual_sentences` in its trace so the metrics need no recomputation. CI's mypy step is now `uv run mypy` (config covers `src/covenantiq` and `eval`).
+- **Docs:** `ADR-024`, a runbook section "Evaluation", and `docs/eval/offline_v1.0.0.md` (the measured numbers and how to read them).
+
+### Verified
+- **The offline run, on real PostgreSQL 16 + pgvector, about 84 s, deterministic (a second run matched every metric).** Baseline values: hit@1 0.603, hit@3 0.828, hit@5 0.931, MRR 0.732; citation correctness 0.981, validity 1.000; unsupported claim rate 0.019; abstention accuracy 0.795; false abstention 0.155 (n=58); false answer 0.400 (n=15); gate stopped 0.600 of the unanswerable; clause extraction, risk precision and recall, finding status accuracy, vendor agreement and scoring determinism all 1.000. Full table with intervals: `docs/eval/offline_v1.0.0.md`.
+- **The perfect scores mean the deterministic logic is right given correct inputs, not that real answers are good:** the scripted oracle supplies the answers.
+- **The gate catches real regressions:** returning one passage (`k_final=1`) drops hit@3 from 0.83 to 0.60 and fails; evidence thresholds of 1.0 drop abstention accuracy from 0.795 to 0.205 and fail. Tests: 12 integration tests (about 3.5 min), 85 unit tests on metrics, dataset, baseline and the gate, 18 on the RAGAS adapter and the full-run script (with fakes).
+- **Dataset integrity:** changing, deleting or adding a file makes the loader refuse, naming the generator; the generator is deterministic.
+- **Lint, mypy (242 files) and the 13 import contracts pass.**
+- **Full suite:** **1864 passed, 1 failed, 20 skipped, 21 slow deselected** (real PostgreSQL and Redis in throwaway containers). The run took 8 h 7 min of wall-clock because the machine was suspended part of the time, so it is not a speed measurement. The one failure, `test_session_memory.py::TestRebuildTriggers::test_damaged_or_outdated_entries_are_rebuilt_not_trusted[no_schema-schema_version]`, passed when run alone and when the whole `tests/integration/memory` directory was rerun (38 passed). I could not reproduce it and have not found its cause; a Redis key expiring during the suspension is a guess, not a finding. The next unattended full run will show whether it recurs. Coverage was not measured in this run.
+
+### Found along the way
+- The first run disagreed with my labels on `DP-001`: contracts with a personal-data breach clause were labelled "absent", but the system answered `insufficient_evidence` because that clause is tagged data protection and absence may not be claimed while a related clause exists. The system was right; the contracts now have a data protection section.
+- **Raising the RRF constant to 1,000 changes no metric offline** (the reranker reorders), so the example regression in the spec's acceptance criteria does not trip this gate. The regressions above do.
+- With the fake reranker the evidence gate refuses 15.5% of answerable questions (fee, renewal and follow-up questions with short clauses) and lets 6 of 15 unanswerable ones through to the model; in all six the citation validator marked the fabricated claim `ungrounded` and added its notice, but the answer is still shown. **Decision for you:** should an answer whose only claims are `ungrounded` be replaced by an abstention?
+
+### Deviations from the spec
+- Contracts are plain text read by a small `TextExtractor` that feeds the production block builder, not PDF or DOCX through Docling (the offline run must be fast and deterministic). Docling stays covered by the slow suite.
+- No CUAD import; all dataset sources are project-owned.
+- Not built: `make eval-retrieval` (real embeddings and reranker), vendor extraction stability over three live runs, calibration of the evidence thresholds (task 6), and the committed full report in `docs/eval/`.
+- Non-LLM context precision and recall are implemented here (Levenshtein, threshold 0.5) so the offline run needs no RAGAS.
+- RAGAS 0.4.4 deprecates `from ragas.metrics import ...`; it must move to `ragas.metrics.collections` before RAGAS 1.0. Adding the `eval` group updated `uv.lock` (jiter and rich moved as a side effect).
+
+### Not yet verified
+- **Everything that needs a key:** `run_full.py` and every RAGAS LLM-judged metric have never run; the adapter is tested with fakes only. There is no full report, and the spec 28.7 targets are untested.
+- **Retrieval with real embeddings and a real reranker.** The offline hit rates and the gate behaviour depend on the fakes. The evidence thresholds (0.55 / 0.35 / 0.70) are the spec's defaults, not calibrated.
+- **The dataset is easy:** short, regular, synthetic contracts. Scores on real agreements will be lower.
+- **CI:** the `eval-offline` and `eval.yml` workflows have not run on GitHub (they were checked locally only).
+- The backend image still needs rebuilding (M9 to M14 dependencies and code).
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -602,12 +643,13 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Not tried:** two large documents processed at the same time on the 7.4 GB Docker allotment; production Compose (`docker-compose.prod.yml` is a skeleton until M19).
 - **Needs your decision:** commit M5 to M8 and the Docker fixes (all uncommitted; nothing has been pushed).
 - **Needs an Anthropic key:** `CIQ_E2E_LLM=1 uv run pytest tests/e2e/test_anthropic_live.py` (three short calls), then one real question over an ingested contract to see answer quality, citation validity and cost. Not run: there is no key on this machine.
-- **RabbitMQ coverage gap (M11 and M12 added to it):** RabbitMQ is the Celery broker for ingestion, embedding, purge, dead-lettering and contract analysis (chat does not use it: replies are an asyncio task in the API). It was run for real only in M6 (dead-lettering, replay, worker-kill drill). Since then tasks have mostly been tested eagerly in-process. Not yet run: ingestion, embedding and the analysis task delivered through the Compose broker to the Compose workers, and killing a real worker mid-analysis. Needs the backend image rebuilt first, then `CIQ_E2E=1 uv run pytest tests/e2e` plus one analysis through the broker.
+- **RabbitMQ coverage gap (M11 to M13 added to it; chat does not use it, analysis and vendor tasks do):** RabbitMQ is the Celery broker for ingestion, embedding, purge, dead-lettering and contract analysis (chat does not use it: replies are an asyncio task in the API). It was run for real only in M6 (dead-lettering, replay, worker-kill drill). Since then tasks have mostly been tested eagerly in-process. Not yet run: ingestion, embedding and the analysis task delivered through the Compose broker to the Compose workers, and killing a real worker mid-analysis. Needs the backend image rebuilt first, then `CIQ_E2E=1 uv run pytest tests/e2e` plus one analysis through the broker.
 - **Needs an Anthropic key (analysis):** analyse one real contract and read the findings end to end (cost, time, false positives, and the share of rules ending `insufficient_evidence`); tune `config/rules/*` and the `analysis:` thresholds from what it shows.
 - **Needs an Anthropic key (vendors):** assess one real vendor with two or three real contracts and read the dimension reasoning, the `notes`, and a comparison; check how many signals end as gaps and whether the extraction signals are noisy.
-- **Next milestone:** M14 (RAGAS evaluation). The SSE publisher and consumer (M15) can come right after, since the chat graph already publishes through the interface. M9 to M11 are complete but unmeasured on real data (see their "Not yet verified" sections).
+- **Needs an Anthropic key (evaluation):** `make eval-full` (cost estimate printed first), then commit the report under `docs/eval/`; calibrate the evidence thresholds from it and add `eval-retrieval`.
+- **Needs your decision:** commit M14 (uncommitted), and whether an answer made only of `ungrounded` claims should abstain (see M14).
+- **Next milestone:** M15 (SSE streaming: Redis Streams publisher and the SSE consumer; the chat graph already publishes through the interface). M9 to M14 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
-- M1 and M2 are committed locally on `main`; nothing has been pushed.
-- M5 to M8, the Docker fixes (RabbitMQ bootstrap, DLQ commands, lost-worker reaper, e2e tests, runbook), OpenAI embedding support and the Ettin reranker are all uncommitted.
-- Slow tests (real Docling): `uv run pytest -m slow` (expect many minutes on the first run while models load).
-- Next: M9 — Hybrid retrieval (vector + full-text search over chunks, reciprocal rank fusion, clause-type filters, parent expansion).
+- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13). M14 is uncommitted.
+- Slow tests (real Docling): `uv run pytest -m slow` (many minutes on the first run while models load; last run in M7).
+- Next: M15 — SSE streaming.

@@ -52,6 +52,9 @@ dev = [
     "reportlab>=5.1.0",
     "ruff>=0.8",
 ]
+eval = [
+    "ragas>=0.4.4",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -63,7 +66,7 @@ packages = ["src/covenantiq"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "."]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "RUF"]
@@ -72,15 +75,17 @@ select = ["E", "F", "I", "B", "UP", "S", "ASYNC", "RUF"]
 "tests/**" = ["S101", "S105", "S106", "S107"]
 "tests/fixtures/**" = ["E501"]
 "tests/unit/ai/test_anthropic_provider.py" = ["E501"]  # wire-format payloads
+"eval/datasets/generate_v1.py" = ["E501"]  # contract text and labels are data
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-files = ["src/covenantiq"]
+files = ["src/covenantiq", "eval"]
+mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["celery.*", "kombu.*", "magic", "pypdfium2", "pypdfium2.*", "yaml", "snowballstemmer"]
+module = ["celery.*", "kombu.*", "magic", "pypdfium2", "pypdfium2.*", "yaml", "snowballstemmer", "ragas", "ragas.*", "langchain_core.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

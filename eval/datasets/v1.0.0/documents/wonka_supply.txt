@@ -1,0 +1,24 @@
+@page 1
+# Wonka Supply Agreement
+# 1. Parties and Interpretation
+1.1 This supply agreement is made between Wonka (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The Customer accepts unlimited liability for any loss or damage arising from its use of the Services, and no cap applies to claims made against it.
+
+# 3. Exclusion of Consequential Loss
+3.1 Neither party shall be liable to the other for any indirect, consequential, special or incidental loss, including loss of profits, arising under this Agreement.
+
+# 4. Termination for Material Breach
+4.1 Either party may terminate this Agreement for material breach if the breach is not remedied within a reasonable period.
+
+@page 2
+
+# 5. Fees and Payment
+5.1 The Customer shall pay each undisputed invoice within thirty (30) days of receipt, in United States dollars.
+
+# 6. Governing Law
+6.1 This Agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction.
+
+# 7. Force Majeure
+7.1 Neither party is liable for delay caused by events beyond its reasonable control, and either party may terminate if such an event continues for more than sixty (60) days.

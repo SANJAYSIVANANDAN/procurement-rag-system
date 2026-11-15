@@ -1,0 +1,19 @@
+@page 1
+# Umbrella Mutual Non-Disclosure Agreement
+# 1. Parties and Interpretation
+1.1 This nda agreement is made between Umbrella (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The total aggregate liability of the Supplier arising out of or in connection with this Agreement shall not exceed the fees paid or payable by the Customer in the twelve (12) months preceding the event giving rise to the claim.
+2.2 The limitation in the previous clause shall not apply to liability for fraud or for death or personal injury caused by negligence.
+
+# 3. Termination for Material Breach
+3.1 Either party may terminate this Agreement with immediate effect by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified.
+
+# 4. Confidentiality
+4.1 Each party shall keep the other party's Confidential Information confidential and shall not disclose it to any third party for five (5) years after disclosure, except as required by law.
+
+@page 2
+
+# 5. Governing Law
+5.1 This Agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction.

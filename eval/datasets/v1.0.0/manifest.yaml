@@ -1,0 +1,26 @@
+version: 1.0.0
+schema_version: 1
+created: '2026-11-14'
+description: Synthetic contracts assembled from a clause library with controlled presence,
+  absence and ambiguity of clauses, with chat questions, expected contract findings
+  and vendor expectations derived from the same library.
+sources:
+- 'synthetic: written for this project (eval/datasets/generate_v1.py)'
+licenses:
+- Project-owned synthetic text. No third-party data is included.
+files:
+  chat_qa.jsonl: 33c397998107e1c24e99c466c035349b6b3d4aabe56a42f840d5146945e74bdf
+  contract_findings.jsonl: 5b90647938b59a2a8c335ab597dc4ce4e5f2c50571fca15db8b0f87d3a1b8451
+  documents/acme_dpa.txt: cf0b3a49571c0645e1961e3579fe878049d6f8f6f886ac8fb13031905990dd3b
+  documents/acme_saas.txt: b7cfbf764c6af1d723209a7c84709dbe2e65a02207b6db724126ee8e186bb17d
+  documents/globex_dpa.txt: 71b62e633ec3c7d1a7bc1bf807bae2f03ba52f216f4f1d33485a35a4c45a5266
+  documents/globex_saas.txt: 035af507f440bc02734f9110d17df2f76609799356a55d23778ec81188925969
+  documents/hooli_services.txt: 4e88be0c0ad0eb847b755b73f53355106e13b485fc2e4c98edefe9e2f2008b81
+  documents/initech_msa.txt: 636b5e6bdcce5382ea694d76b69b76217aaef239ab46960110a73da1fd59088c
+  documents/piedpiper_saas.txt: 2aae254c7fa209a6d4046e9457168335d73f5c54ece3665d309011ace562da97
+  documents/soylent_services.txt: dde645650984f56ce8f62b11c37d7f9cb24e18923d06f3d233add94f41681ce1
+  documents/stark_saas.txt: 77d0f248b7b1bef97ff14241920c5d5fe750fb603781c589159aa12e64c74f13
+  documents/umbrella_nda.txt: da39ae77318b47f9137a85cc0e4736cfd0aa863f0e0231412743a96aa67c4c11
+  documents/wayne_license.txt: 497ba52666bc57216fc6b774eb303e26a77851bf9c4840ae96ae4d055bfcc843
+  documents/wonka_supply.txt: 0d29592ca5530057611a18001b5ea82231419112b0a857723e8fc13a22aed517
+  vendor_cases.jsonl: e564cb6085c73a7a04b68d52d603d7d483e718f353bc4f23cdf267cc89bdc3b9

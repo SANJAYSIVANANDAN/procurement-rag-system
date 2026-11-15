@@ -1,0 +1,66 @@
+@page 1
+# Acme Cloud Subscription Agreement
+# 1. Parties and Interpretation
+1.1 This saas agreement is made between Acme (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The total aggregate liability of the Supplier arising out of or in connection with this Agreement shall not exceed the fees paid or payable by the Customer in the twelve (12) months preceding the event giving rise to the claim.
+2.2 The limitation in the previous clause shall not apply to liability for fraud or for death or personal injury caused by negligence.
+
+# 3. Exclusion of Consequential Loss
+3.1 Neither party shall be liable to the other for any indirect, consequential, special or incidental loss, including loss of profits, arising under this Agreement.
+
+# 4. Indemnification
+4.1 Each party shall defend and indemnify the other against third-party claims arising from its breach of this Agreement.
+
+@page 2
+
+# 5. Termination for Convenience
+5.1 The Customer may terminate this Agreement for convenience at any time on thirty (30) days' written notice to the Supplier.
+
+# 6. Termination for Material Breach
+6.1 Either party may terminate this Agreement with immediate effect by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified.
+
+# 7. Term and Renewal
+7.1 This Agreement continues for an initial term of twelve (12) months. It does not renew unless both parties agree in writing.
+
+@page 3
+
+# 8. Fees and Payment
+8.1 The Customer shall pay each undisputed invoice within thirty (30) days of receipt, in United States dollars.
+
+# 9. Price Changes
+9.1 Fees are fixed for the initial term. Any increase on renewal shall not exceed three per cent (3%) and requires ninety (90) days' prior written notice.
+
+# 10. Confidentiality
+10.1 Each party shall keep the other party's Confidential Information confidential and shall not disclose it to any third party for five (5) years after disclosure, except as required by law.
+
+@page 4
+
+# 11. Data Protection
+11.1 Each party shall comply with applicable data protection law. The Supplier shall process personal data only on the documented instructions of the Customer.
+
+# 12. Breach Notification
+12.1 The Supplier shall notify the Customer of any personal data breach without undue delay and in any event within seventy-two (72) hours of becoming aware of it.
+
+# 13. Sub-processors
+13.1 The Supplier shall give the Customer thirty (30) days' notice of any new sub-processor, and the Customer may object to the appointment.
+
+@page 5
+
+# 14. Service Levels
+14.1 The Supplier shall make the Services available at least 99.9% of the time in each calendar month, excluding scheduled maintenance.
+
+# 15. Governing Law
+15.1 This Agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction.
+
+# 16. Customer Data
+16.1 All Customer Data remains the exclusive property of the Customer. The Supplier shall use Customer Data only to provide the Services.
+
+@page 6
+
+# 17. Audit Rights
+17.1 The Customer may, on reasonable notice and not more than once a year, audit the Supplier's records relating to the Services.
+
+# 18. Force Majeure
+18.1 Neither party is liable for delay caused by events beyond its reasonable control, and either party may terminate if such an event continues for more than sixty (60) days.

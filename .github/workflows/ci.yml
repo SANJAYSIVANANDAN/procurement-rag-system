@@ -16,7 +16,7 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
-      - run: uv run mypy src/covenantiq
+      - run: uv run mypy
       - run: uv run lint-imports
 
   unit:
@@ -31,3 +31,48 @@ jobs:
         with:
           name: coverage-unit
           path: coverage.xml
+
+  eval-offline:
+    # The regression gate (spec 28.8): the real pipeline with fake providers and a scripted model,
+    # compared with eval/baselines/offline_v1.0.0.json. No paid API is involved.
+    runs-on: ubuntu-latest
+    needs: unit
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ciq
+          POSTGRES_PASSWORD: ciq_ci
+          POSTGRES_DB: covenantiq_eval
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ciq" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CIQ_ENV: test
+      CIQ_OFFLINE: "1"
+      CIQ_DATABASE_URL: postgresql+asyncpg://ciq:ciq_ci@localhost:5432/covenantiq_eval
+      CIQ_CHECKPOINT_DB_URL: postgresql://ciq:ciq_ci@localhost:5432/covenantiq_eval
+      CIQ_REDIS_URL: redis://localhost:6379/0
+      CIQ_CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      CIQ_RABBITMQ_URL: amqp://ciq:ciq@localhost:5672/covenantiq
+      CIQ_JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      CIQ_EVAL_DATABASE_URL: postgresql+asyncpg://ciq:ciq_ci@localhost:5432/covenantiq_eval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: |
+          PGPASSWORD=ciq_ci psql -h localhost -U ciq -d covenantiq_eval \
+            -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+      - run: uv run python -c "from alembic import command; from covenantiq.db.migrations import alembic_config; command.upgrade(alembic_config(), 'head')"
+      - run: uv run python -m eval.scripts.run_offline
+      - run: uv run python -m eval.scripts.compare_to_baseline | tee eval-summary.txt
+      - if: always()
+        run: |
+          echo '## Offline evaluation' >> "$GITHUB_STEP_SUMMARY"
+          cat eval/reports/*_offline.md >> "$GITHUB_STEP_SUMMARY" || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-offline-report
+          path: eval/reports/

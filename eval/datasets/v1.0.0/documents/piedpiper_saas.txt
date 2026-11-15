@@ -1,0 +1,52 @@
+@page 1
+# Pied Piper Hosted Service Terms
+# 1. Parties and Interpretation
+1.1 This saas agreement is made between Pied Piper (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The total aggregate liability of the Supplier arising out of or in connection with this Agreement shall not exceed the fees paid or payable by the Customer in the twelve (12) months preceding the event giving rise to the claim.
+2.2 The limitation in the previous clause shall not apply to liability for fraud or for death or personal injury caused by negligence.
+
+# 3. Indemnification
+3.1 Each party shall defend and indemnify the other against third-party claims arising from its breach of this Agreement.
+
+# 4. Termination for Material Breach
+4.1 Either party may terminate this Agreement with immediate effect by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified.
+
+@page 2
+
+# 5. Term and Renewal
+5.1 This Agreement shall automatically renew for successive terms of twelve (12) months unless the Customer gives notice of non-renewal at least ninety (90) days before the end of the then-current term.
+
+# 6. Fees and Payment
+6.1 The Customer shall pay each undisputed invoice within thirty (30) days of receipt, in United States dollars.
+
+# 7. Price Changes
+7.1 Fees are fixed for the initial term. Any increase on renewal shall not exceed three per cent (3%) and requires ninety (90) days' prior written notice.
+
+@page 3
+
+# 8. Confidentiality
+8.1 Each party shall keep the other party's Confidential Information confidential and shall not disclose it to any third party for five (5) years after disclosure, except as required by law.
+
+# 9. Data Protection
+9.1 Each party shall comply with applicable data protection law. The Supplier shall process personal data only on the documented instructions of the Customer.
+
+# 10. Breach Notification
+10.1 The Supplier shall notify the Customer of any personal data breach without undue delay and in any event within seventy-two (72) hours of becoming aware of it.
+
+@page 4
+
+# 11. Service Levels
+11.1 The Supplier shall make the Services available at least 99.9% of the time in each calendar month, excluding scheduled maintenance.
+
+# 12. Customer Data
+12.1 All Customer Data remains the exclusive property of the Customer. The Supplier shall use Customer Data only to provide the Services.
+
+# 13. Audit Rights
+13.1 The Customer may, on reasonable notice and not more than once a year, audit the Supplier's records relating to the Services.
+
+@page 5
+
+# 14. Force Majeure
+14.1 Neither party is liable for delay caused by events beyond its reasonable control, and either party may terminate if such an event continues for more than sixty (60) days.

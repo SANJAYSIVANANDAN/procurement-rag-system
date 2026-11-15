@@ -1,0 +1,36 @@
+@page 1
+# Wayne Enterprises Software Licence
+# 1. Parties and Interpretation
+1.1 This license agreement is made between Wayne (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The total aggregate liability of the Supplier arising out of or in connection with this Agreement shall not exceed the fees paid or payable by the Customer in the twelve (12) months preceding the event giving rise to the claim.
+2.2 The limitation in the previous clause shall not apply to liability for fraud or for death or personal injury caused by negligence.
+
+# 3. Indemnification
+3.1 Each party shall defend and indemnify the other against third-party claims arising from its breach of this Agreement.
+
+# 4. Termination for Material Breach
+4.1 Either party may terminate this Agreement with immediate effect by written notice if the other party commits a material breach and fails to remedy it within thirty (30) days of being notified.
+
+@page 2
+
+# 5. Term and Renewal
+5.1 This Agreement shall automatically renew for successive terms of twelve (12) months unless the Customer gives notice of non-renewal at least ninety (90) days before the end of the then-current term.
+
+# 6. Fees and Payment
+6.1 The Customer shall pay each undisputed invoice within thirty (30) days of receipt, in United States dollars.
+
+# 7. Price Changes
+7.1 Fees are fixed for the initial term. Any increase on renewal shall not exceed three per cent (3%) and requires ninety (90) days' prior written notice.
+
+@page 3
+
+# 8. Confidentiality
+8.1 Each party shall keep the other party's Confidential Information confidential and shall not disclose it to any third party for five (5) years after disclosure, except as required by law.
+
+# 9. Governing Law
+9.1 This Agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction.
+
+# 10. Force Majeure
+10.1 Neither party is liable for delay caused by events beyond its reasonable control, and either party may terminate if such an event continues for more than sixty (60) days.

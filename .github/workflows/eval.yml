@@ -1,0 +1,57 @@
+name: eval
+# The full evaluation: real providers and RAGAS's LLM-judged metrics (spec 28.5, 28.8). It costs
+# money and needs secrets, so it runs on demand and nightly, and is not required for merging.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+jobs:
+  full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: ciq
+          POSTGRES_PASSWORD: ciq_ci
+          POSTGRES_DB: covenantiq_eval
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ciq" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CIQ_ENV: test
+      CIQ_OFFLINE: "0"
+      CIQ_LLM_PROVIDER: anthropic
+      CIQ_EMBEDDING_PROVIDER: ${{ vars.CIQ_EMBEDDING_PROVIDER || 'voyage' }}
+      CIQ_RERANK_PROVIDER: ${{ vars.CIQ_RERANK_PROVIDER || 'none' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      COHERE_API_KEY: ${{ secrets.COHERE_API_KEY }}
+      CIQ_DATABASE_URL: postgresql+asyncpg://ciq:ciq_ci@localhost:5432/covenantiq_eval
+      CIQ_CHECKPOINT_DB_URL: postgresql://ciq:ciq_ci@localhost:5432/covenantiq_eval
+      CIQ_REDIS_URL: redis://localhost:6379/0
+      CIQ_CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      CIQ_RABBITMQ_URL: amqp://ciq:ciq@localhost:5672/covenantiq
+      CIQ_JWT_SECRET: ci-only-secret-ci-only-secret-ci-only-secret
+      CIQ_EVAL_DATABASE_URL: postgresql+asyncpg://ciq:ciq_ci@localhost:5432/covenantiq_eval
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen --group eval
+      - run: |
+          PGPASSWORD=ciq_ci psql -h localhost -U ciq -d covenantiq_eval \
+            -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS citext; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+      - run: uv run python -c "from alembic import command; from covenantiq.db.migrations import alembic_config; command.upgrade(alembic_config(), 'head')"
+      - run: uv run --group eval python -m eval.scripts.run_full --yes | tee eval-summary.txt
+      - if: always()
+        run: |
+          echo '## Full evaluation' >> "$GITHUB_STEP_SUMMARY"
+          cat eval/reports/*_full.md >> "$GITHUB_STEP_SUMMARY" || true
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-full-report
+          path: eval/reports/

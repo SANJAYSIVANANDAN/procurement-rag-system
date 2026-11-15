@@ -12,7 +12,7 @@ format:
 	uv run ruff format .
 
 typecheck:
-	uv run mypy src/covenantiq
+	uv run mypy
 
 imports:
 	uv run lint-imports
@@ -33,3 +33,27 @@ logs:
 
 ps:
 	docker compose ps
+
+# ---- evaluation (spec 28) ------------------------------------------------------------------------
+# The offline run needs a migrated PostgreSQL with pgvector: set CIQ_EVAL_DATABASE_URL (it writes
+# only under a throwaway user and removes it).
+
+.PHONY: eval-dataset eval-offline eval-compare eval-baseline eval-full
+
+eval-dataset:
+	uv run python -m eval.datasets.generate_v1
+
+eval-offline:
+	uv run python -m eval.scripts.run_offline
+	uv run python -m eval.scripts.compare_to_baseline
+
+eval-compare:
+	uv run python -m eval.scripts.compare_to_baseline
+
+# Rewrite the committed baseline. Say why in the commit message (spec 28.6).
+eval-baseline:
+	uv run python -m eval.scripts.run_offline --write-baseline eval/baselines/offline_v1.0.0.json --note "$(NOTE)"
+
+# Real providers and RAGAS: costs money, needs keys and `uv sync --group eval`.
+eval-full:
+	uv run --group eval python -m eval.scripts.run_full

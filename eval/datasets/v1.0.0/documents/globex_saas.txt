@@ -1,0 +1,35 @@
+@page 1
+# Globex Platform Services Agreement
+# 1. Parties and Interpretation
+1.1 This saas agreement is made between Globex (the "Supplier") and the customer named in the order form (the "Customer").
+
+# 2. Limitation of Liability
+2.1 The Customer accepts unlimited liability for any loss or damage arising from its use of the Services, and no cap applies to claims made against it.
+
+# 3. Termination for Material Breach
+3.1 Either party may terminate this Agreement for material breach if the breach is not remedied within a reasonable period.
+
+# 4. Term and Renewal
+4.1 This Agreement shall automatically renew for successive terms of twelve (12) months unless the Customer gives notice of non-renewal at least ninety (90) days before the end of the then-current term.
+
+@page 2
+
+# 5. Fees and Payment
+5.1 The Customer shall pay invoices promptly after receipt.
+
+# 6. Price Changes
+6.1 The Supplier may increase the fees at any time upon notice to the Customer.
+
+# 7. Confidentiality
+7.1 Each party shall keep the other party's Confidential Information confidential and shall not disclose it to any third party for five (5) years after disclosure, except as required by law.
+
+@page 3
+
+# 8. Governing Law
+8.1 This Agreement is governed by the laws of England and Wales, and the courts of England and Wales have exclusive jurisdiction.
+
+# 9. Customer Data
+9.1 The Supplier may use Customer Data for its own purposes, including to improve its products and services.
+
+# 10. Force Majeure
+10.1 Neither party is liable for delay caused by events beyond its reasonable control, and either party may terminate if such an event continues for more than sixty (60) days.
