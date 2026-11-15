@@ -22,8 +22,9 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M13 — Vendor assessment and comparison | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
 | M14 — RAGAS evaluation | Code and tests complete, committed in `e63ecfe`; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
 | M15 — SSE streaming | Code and tests complete, committed in `e111890`; verified on real PostgreSQL and Redis and over real HTTP with `curl -N` (fake model); never streamed a real model's reply or through a proxy |
-| M16 — Streamlit UI | Code and tests complete, committed with this milestone; all nine pages render against the real API (empty account) and against fakes with data; no real browser, no upload through the UI, no real model |
-| M17–M19 | Not started |
+| M16 — Streamlit UI | Code and tests complete, committed in `6f12c09`; all nine pages render against the real API (empty account) and against fakes with data; no real browser, no upload through the UI, no real model |
+| M17 — Integration testing | Tests and two fixes complete, committed with this milestone; the whole-stack flow test is not written; no CI evidence of flakiness or duration |
+| M18–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -582,6 +583,31 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **Streaming through a real model and a proxy** (see M15).
 - The backend image still needs rebuilding (M9 to M15 dependencies and code); the frontend image was built and works.
 
+## M17 — Integration testing
+
+### Built
+- **`docs/test-matrix.md`**: every row of the spec's critical list (34.3) mapped to the tests that cover it, the failure-injection cases, and what is not covered. An audit of the existing suite found most rows already covered by M3 to M16; the gaps below were filled.
+- **`tests/integration/api/test_ownership_matrix.py`** (11 tests): user B gets 404 on all 17 endpoint cases that take one of A's ids (documents, status, analyze, findings, jobs, conversations, messages, the stream, vendors, assess, assessments), 401 without a token everywhere else, lists show only your own, cross-references are refused or dropped, and **a route that is not classified in the file fails the build** (so a new endpoint cannot skip the check).
+- **`tests/unit/graphs/test_chat_injection.py`** (7 tests): a flagged passage reaches the model with a warning, markup in a passage cannot close or open a source block, the prompt tells the model sources are data, and a reply containing the canary is refused.
+- **`tests/integration/chat/test_chat_flows.py`** (4 tests, the log tests run in both JSON and console format): Redis flushed in the middle of a conversation (the follow-up still sees the earlier turn, rebuilt from PostgreSQL, and the window returns), and no contract text or question in the logs of a validated reply or a failed one.
+- **Contract analysis with a refusing model** (`test_contract_graph.py`): the refused batch's rules degrade, the job succeeds.
+- **Code changes the tests forced** (ADR-027): tracebacks no longer print local variables; every answer prompt carries a canary and a reply containing it is replaced by a refusal.
+
+### Verified
+- All new tests pass. Full suite: **1978 passed, 0 failed, 23 skipped, 21 slow deselected; coverage 95%** in 29 min 17 s. The run reported 4 errors at setup in `test_chat_flows.py`'s log tests, which were my own doing: I had started pytest with `-p no:logging`, which removes the `caplog` fixture they use. Run normally (`tests/integration/chat/test_chat_flows.py` with `tests/unit/core/test_logging.py`) they all pass (14 tests). The suite should be run without that flag.
+- Lint, mypy (268 files) and the 15 import contracts pass.
+
+### Found and fixed along the way
+- **Logs could contain contract text, questions and passwords.** structlog renders local variables in tracebacks by default, in the JSON format used in production as well as the console one. The log test caught a conversation turn (with the contract passage) printed that way. Fixed in `core/logging.py`; tested in both formats.
+- **No defence against a model that obeys an injected instruction.** The citation check accepts any sentence with a valid marker, so a compliant model's output was marked grounded. Added the canary (see ADR-027). It does not catch an injected claim that the passage itself states.
+- Foreign document ids on a conversation are silently dropped (existing design, now tested): the earlier expectation of a 404 was wrong for it.
+
+### Not done
+- **`tests/e2e/test_full_flow.py`** (the whole path through a Compose stack): not written, since it cannot be run here (the backend image is stale and the worker stack is not up). The pieces run in `test_worker_flow`, `test_chat_api`, `integration/vendor/` and `e2e/test_ui_flow.py`.
+- **Ten consecutive CI runs without a flaky failure, and a suite under ten minutes in CI:** the integration suite is not in CI yet (M18) and takes about 30 minutes here. One memory test failed once in an earlier full run and has not been explained (see M14); no run since has shown it.
+- **Tuning thresholds from the evaluation:** the offline numbers come from fake providers (see M14).
+- **Log scans cover chat only**, not ingestion, analysis or vendor runs.
+
 ## Reranking is optional (decision recorded)
 
 - Reranking can be switched off (`CIQ_RERANK_PROVIDER=none`: the factory returns nothing, no model or API is used), skipped per request (spec 19.8 `rerank: bool`), and skipped automatically when the reranker fails or times out (the fused order is kept and `rerank_skipped` is recorded in the trace). The evidence gate then uses the stricter RRF-based thresholds (spec 19.10).
@@ -723,8 +749,8 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Needs a proxy to try:** the SSE endpoint behind nginx or a load balancer (buffering, idle timeout).
 - **Needs a browser:** open http://localhost:8501 and click through every page (layout, citation links, charts, upload, sign out).
 - **Needs the Compose stack and a key:** the whole path through the UI, with documents, analysis, two vendors and a comparison (the acceptance criterion of M16).
-- **Next milestone:** M17. M9 to M16 are complete but unmeasured on real data (see their "Not yet verified" sections).
+- **Next milestone:** M18. M9 to M17 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
-- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13), `e63ecfe` (M14), `e111890` (M15). M16 is committed after it (see `git log`).
+- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13), `e63ecfe` (M14), `e111890` (M15), `6f12c09` (M16). M17 is committed after it (see `git log`).
 - Slow tests (real Docling): `uv run pytest -m slow` (many minutes on the first run while models load; last run in M7).
-- Next: M17.
+- Next: M18.

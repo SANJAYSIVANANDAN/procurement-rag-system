@@ -41,6 +41,8 @@ class ChatState(TypedDict, total=False):
     evidence: EvidenceVerdict
     # output
     draft_answer: str
+    canary: str
+    canary_leaked: bool
     final_answer: str
     citations: list[ChatCitation]
     grounding_status: GroundingStatus

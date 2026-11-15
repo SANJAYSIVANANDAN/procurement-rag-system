@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from covenantiq.ai.llm.base import LLMUnavailable
+from covenantiq.ai.llm.base import LLMRefused, LLMUnavailable
 from covenantiq.ai.schemas import ObligationExtraction, ObligationItem
 from covenantiq.analysis.contract.types import RuleResult
 from covenantiq.core.enums import (
@@ -187,6 +187,18 @@ class TestFailuresInsideTheRun:
         finding = a.by_rule(broken)
         assert finding.clause_status is ClauseStatus.INSUFFICIENT_EVIDENCE
         assert finding.details["error"] == "LLM_UNAVAILABLE"
+        assert a.by_rule("LIAB-001").clause_status is ClauseStatus.ACCEPTABLE
+
+    async def test_a_model_that_refuses_a_batch_degrades_those_rules_not_the_job(self) -> None:
+        def refuses(ids: list[str]) -> None:
+            if "SLA-001" in ids:
+                raise LLMRefused("declined")
+
+        a = Analysis(ready_document(), on_batch=refuses)
+        await a.run()
+        finding = a.by_rule("SLA-001")
+        assert finding.clause_status is ClauseStatus.INSUFFICIENT_EVIDENCE
+        assert finding.details["error"] != ""  # the reason is recorded, never a guess
         assert a.by_rule("LIAB-001").clause_status is ClauseStatus.ACCEPTABLE
 
     async def test_a_retrieval_failure_degrades_only_that_rule(self) -> None:

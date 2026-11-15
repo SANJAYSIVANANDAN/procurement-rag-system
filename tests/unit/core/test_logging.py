@@ -82,3 +82,29 @@ def test_stdlib_loggers_share_the_pipeline(capsys: pytest.CaptureFixture[str]) -
     record = last_line(capsys)
     assert record["event"] == "started"
     assert record["logger"] == "uvicorn.error"
+
+
+SECRET_LOCAL = "hunter2-contract-text-ZEBRA-QUOKKA"
+
+
+def _fails_holding_a_secret() -> None:
+    document_text = SECRET_LOCAL  # noqa: F841 - a local a traceback could print
+    raise RuntimeError("boom")
+
+
+@pytest.mark.parametrize("fmt", [LogFormat.JSON, LogFormat.CONSOLE])
+def test_a_logged_traceback_does_not_print_local_variables(
+    fmt: LogFormat, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Locals hold passwords, prompts and contract text; a traceback must show code, not values."""
+    configure_logging("DEBUG", fmt)
+    try:
+        _fails_holding_a_secret()
+    except RuntimeError:
+        get_logger("test").error("something.failed", exc_info=True)
+    seen = capsys.readouterr()
+    output = seen.out + seen.err
+    assert "boom" in output  # the error and its stack are still there
+    assert "_fails_holding_a_secret" in output
+    assert SECRET_LOCAL not in output
+    clear_context()

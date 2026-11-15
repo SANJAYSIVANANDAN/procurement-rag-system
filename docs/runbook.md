@@ -237,6 +237,16 @@ Without Docker: `uv run streamlit run frontend/app.py` (needs the API running; t
 - **Tests:** `uv run pytest tests/unit/frontend` needs no server. With an API running,
   `CIQ_E2E_UI=1 CIQ_API_BASE_URL=http://localhost:8000/api/v1 uv run pytest tests/e2e/test_ui_flow.py` renders every page against it.
 
+## Log hygiene
+
+- Logs hold identifiers, counts, timings and error types: never a question, a passage, a prompt or an
+  answer, and tracebacks carry no local variable values (`show_locals` is off in both formats). Do not
+  add document or user text to a log call or an exception message.
+- `chat.canary_leaked` (warning): a model reply contained the confidential reference that every answer
+  prompt carries, which means it was talked into revealing its instructions. The user saw a refusal.
+  Look at which document the passages came from (`chat.run_finished` has the message id) and whether
+  it carries an injection warning (`injection_flagged_blocks` in the document's extraction quality).
+
 ## Contract analysis
 
 `POST /documents/{id}/analyze` queues a job on the `contract_analysis` queue (consumed by the

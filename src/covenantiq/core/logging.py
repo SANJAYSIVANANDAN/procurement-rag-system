@@ -80,11 +80,17 @@ def configure_logging(level: str = "INFO", fmt: LogFormat = LogFormat.CONSOLE) -
         renderer = structlog.processors.JSONRenderer()
         final: list[Processor] = [
             structlog.stdlib.ProcessorFormatter.remove_processors_meta,
-            structlog.processors.dict_tracebacks,
+            # no local variables in a traceback: they hold passwords, prompts and contract text
+            structlog.processors.ExceptionRenderer(
+                structlog.tracebacks.ExceptionDictTransformer(show_locals=False)
+            ),
             renderer,
         ]
     else:
-        renderer = structlog.dev.ConsoleRenderer(colors=sys.stdout.isatty())
+        renderer = structlog.dev.ConsoleRenderer(
+            colors=sys.stdout.isatty(),
+            exception_formatter=structlog.dev.RichTracebackFormatter(show_locals=False),
+        )
         final = [structlog.stdlib.ProcessorFormatter.remove_processors_meta, renderer]
 
     handler = _StdoutHandler()
