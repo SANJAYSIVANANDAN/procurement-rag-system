@@ -20,8 +20,9 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 | M11 — LangGraph chat orchestration | Code and tests complete, committed in `72d8c56`; verified against real PostgreSQL and Redis with a fake model and a scripted retriever; the real Anthropic API has never been called |
 | M12 — Contract analysis | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume) with a fake model and a scripted retriever; the real model has never been asked to assess a clause |
 | M13 — Vendor assessment and comparison | Code and tests complete, committed in `72d8c56`; verified on real PostgreSQL (including a real checkpoint resume and the bounded dependency wait) with a fake model; the real model has never read a signal, explained a dimension or written a comparison |
-| M14 — RAGAS evaluation | Code and tests complete, **not committed**; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
-| M15–M19 | Not started |
+| M14 — RAGAS evaluation | Code and tests complete, committed in `e63ecfe`; the offline regression gate runs for real (real pipeline, fake providers, scripted model) with a baseline file (`eval/baselines/offline_v1.0.0.json`); the full run with real providers and RAGAS's LLM metrics is built but has never been run (no keys) |
+| M15 — SSE streaming | Code and tests complete, committed with this milestone; verified on real PostgreSQL and Redis and over real HTTP with `curl -N` (fake model); never streamed a real model's reply or through a proxy |
+| M16–M19 | Not started |
 
 ## Repository cleanup (before M1)
 
@@ -379,7 +380,7 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 ### Deviations from the spec
 - One `retrieve` node instead of `retrieve_hybrid` + `rerank` (the engine does both as one operation); `assess_evidence` also builds the context.
 - Citation events come from `finalize` after the commit (§26.7), not from `validate_citations` (§22.4's table).
-- The production container publishes to a `NullPublisher`: the Redis Streams publisher and the `GET .../stream` consumer are M15. Until then a reply is read from the messages endpoint.
+- The production container published to a `NullPublisher` until M15, which added the Redis Streams publisher and the `GET .../stream` consumer.
 - `conversation_summary.v1.md` keeps its M10 name instead of `summarize.v1.md`.
 - The Anthropic adapter is tested through the SDK's `httpx2` transport, not `respx` (the SDK no longer uses the `httpx` that `respx` patches). The `@live` tests are in `tests/e2e/test_anthropic_live.py`, opt in with `CIQ_E2E_LLM=1`.
 - The producer task set is an instance attribute of `ChatService`, not module-level.
@@ -389,7 +390,7 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **Answer quality.** The prompts were never run on a real model with real contracts; whether answers cite correctly, whether the validator is too strict or too lax, and what a reply costs and how long it takes are all unmeasured.
 - **Real retrieval inside a chat turn.** The integration tests use a scripted retriever (retrieval is covered by its own suite on real pgvector); a full question over an ingested document, end to end, has not been run.
 - **The Compose stack and the backend image** still lack the M9 to M11 dependencies and code (`anthropic`, `langgraph`, `psycopg`); the image has to be rebuilt before `migrate` or the API will run in Docker.
-- **Reading a reply live:** there is no SSE endpoint yet (M15), so nothing can watch tokens arrive over HTTP.
+- **Reading a reply live:** no SSE endpoint existed at M11; M15 added it.
 
 ## M12 — Contract analysis
 
@@ -510,6 +511,41 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **The dataset is easy:** short, regular, synthetic contracts. Scores on real agreements will be lower.
 - **CI:** the `eval-offline` and `eval.yml` workflows have not run on GitHub (they were checked locally only).
 - The backend image still needs rebuilding (M9 to M14 dependencies and code).
+
+## M15 — SSE streaming
+
+### Built
+- **`streaming/publisher.py`: `RedisStreamPublisher`** (`XADD ciq:{env}:stream:{message_id} MAXLEN ~ 5000`, fields `event` and `data`). Tokens are merged and written every 30 ms or 64 characters, always before any other event; the key expires 600 s after the terminal event (3,600 s after the first entry if there is none). A Redis error is logged and dropped: the reply still completes in PostgreSQL.
+- **`streaming/consumer.py`: `StreamConsumer`** (`XREAD BLOCK` from `Last-Event-ID`, stop at the terminal event, replay of a finished reply from PostgreSQL when its stream is gone, `STREAM_STALLED` after the idle timeout, a reconnect after the terminal event returns nothing) and `replay_frames`.
+- **`services/stream_service.py`**: the ownership check (conversation is the caller's, message belongs to it, role is assistant; otherwise 404) and the loader for replays.
+- **`GET /api/v1/conversations/{id}/stream?message_id=`** with `sse-starlette` (`ping=15`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `Last-Event-ID` header).
+- **Wiring:** the container publishes through `RedisStreamPublisher` (was `NullPublisher`) and has a dedicated Redis client for listeners (its socket timeout is longer than the 15 s block). Shutdown already waited 20 s for producers and marked the rest interrupted (M11).
+- **Dependencies:** `sse-starlette`, and `httpx-sse` for tests.
+- **Docs:** `ADR-025` and a runbook section "Streaming a reply (SSE)".
+
+### Verified
+- **Real HTTP, outside the test harness:** uvicorn on the real app (fake model, offline mode), `curl -N` showed `message_start`, `status`, `token` and `message_complete` frames with Redis ids, and reconnecting with the 2nd frame's id returned the other 2 of 4 frames. That run took the abstention path (the smoke database had no documents).
+- **Integration tests (real PostgreSQL and Redis, httpx-sse against the ASGI app, 16 tests):** event order and final content; listening before the reply is finished; **reconnecting after every possible frame gives exactly the rest**; reconnecting without an id; the listener leaving does not stop the reply (it completes in PostgreSQL); **replay from PostgreSQL after the stream is deleted** (completed and failed replies, resuming by `0-N` ids, a listener holding a real Redis id); **a producer that died gives `STREAM_STALLED`, then the sweeper marks it interrupted and a later listener gets `INTERRUPTED`**; authorization (other user 404, wrong conversation 404, a user message 404, unknown id 404, anonymous 401, missing `message_id` 422); a Redis failure while publishing leaves the reply completed and served from PostgreSQL; the stream's short expiry; 200 tokens become fewer than 40 writes with the text intact.
+- **Unit tests (29):** coalescing by characters and by time, the key expiry, a swallowed Redis failure, and a **Hypothesis property**: text and order survive any pattern of tokens, pauses and status events and the ordering guarantee holds; replay frames for completed, failed and interrupted replies.
+- **Lint, mypy (244 files) and the 13 import contracts pass.** Unit, API, chat and memory tests together: 1613 passed.
+- **Full suite:** **1892 passed, 0 failed, 20 skipped (17 opt-in e2e, 3 opt-in live model), 21 slow deselected; coverage 94%** (real PostgreSQL and Redis in throwaway containers; 1 h 59 min of wall-clock with coverage on, partly machine suspension, so not a speed measurement). The memory test that failed once in the M14 run passed here, so the earlier failure is still unexplained.
+
+### Found and fixed along the way
+- A reconnect after the terminal event (what a browser does when a stream closes) replayed the citations and the terminal event again, because the consumer found the message final and the stream quiet. It now checks whether the stream's last entry is a terminal event the listener already has. The resume test caught it.
+- The M2 conftest builds `Container` by hand; it needed the two new fields.
+
+### Deviations from the spec
+- The conversation lock is released by `ChatService` when the producer ends, not by the publisher on the terminal event (spec 26.3), because the service must release it on every failure path anyway.
+- The consumer is split across `streaming/consumer.py` (Redis) and `services/stream_service.py` (PostgreSQL) because the import rules forbid `streaming` from importing `services`.
+- A replayed `message_complete` has empty `timings_ms` (not stored with the message). A merged token's `index` is that of its first token.
+- No rate limit on the stream endpoint and no cap on concurrent listeners per user.
+
+### Not yet verified
+- **A live stream from a real model.** The stream was exercised with a fake model; the spec's "curl -N shows live events from a real graph run" is true of the real graph but not of a real Anthropic model (no key here).
+- **A proxy in front** (nginx or a load balancer): buffering, idle timeouts and the 15 s pings were not tried; `X-Accel-Buffering` is set but unproven.
+- **Many listeners and reconnect storms**, and a Redis restart in the middle of a reply (the listener should end with the PostgreSQL replay after the idle timeout; this is tested with a deleted key, not a restart).
+- **Streamlit** is the first real browser-side client (M16); the `Last-Event-ID` retry loop of spec 26.9 lives there.
+- The backend image still needs rebuilding (M9 to M15 dependencies and code).
 
 ## Reranking is optional (decision recorded)
 
@@ -641,15 +677,17 @@ Docker Desktop became available, so everything that was waiting on it was run. A
 - **Needs real contracts:** check Docling extraction, clause boundaries and chunk sizes on 3 to 5 real agreements (the tests use generated fixtures).
 - **Needs CI:** a job that caches the Docling models and runs the slow suite (`uv run pytest -m slow`), and a Compose smoke job (spec 33). The slow suite was last run on Windows in M7 and has not been run since M8.
 - **Not tried:** two large documents processed at the same time on the 7.4 GB Docker allotment; production Compose (`docker-compose.prod.yml` is a skeleton until M19).
-- **Needs your decision:** commit M5 to M8 and the Docker fixes (all uncommitted; nothing has been pushed).
+- **Needs your decision:** whether to push (everything is committed locally; nothing has been pushed).
 - **Needs an Anthropic key:** `CIQ_E2E_LLM=1 uv run pytest tests/e2e/test_anthropic_live.py` (three short calls), then one real question over an ingested contract to see answer quality, citation validity and cost. Not run: there is no key on this machine.
 - **RabbitMQ coverage gap (M11 to M13 added to it; chat does not use it, analysis and vendor tasks do):** RabbitMQ is the Celery broker for ingestion, embedding, purge, dead-lettering and contract analysis (chat does not use it: replies are an asyncio task in the API). It was run for real only in M6 (dead-lettering, replay, worker-kill drill). Since then tasks have mostly been tested eagerly in-process. Not yet run: ingestion, embedding and the analysis task delivered through the Compose broker to the Compose workers, and killing a real worker mid-analysis. Needs the backend image rebuilt first, then `CIQ_E2E=1 uv run pytest tests/e2e` plus one analysis through the broker.
 - **Needs an Anthropic key (analysis):** analyse one real contract and read the findings end to end (cost, time, false positives, and the share of rules ending `insufficient_evidence`); tune `config/rules/*` and the `analysis:` thresholds from what it shows.
 - **Needs an Anthropic key (vendors):** assess one real vendor with two or three real contracts and read the dimension reasoning, the `notes`, and a comparison; check how many signals end as gaps and whether the extraction signals are noisy.
 - **Needs an Anthropic key (evaluation):** `make eval-full` (cost estimate printed first), then commit the report under `docs/eval/`; calibrate the evidence thresholds from it and add `eval-retrieval`.
-- **Needs your decision:** commit M14 (uncommitted), and whether an answer made only of `ungrounded` claims should abstain (see M14).
-- **Next milestone:** M15 (SSE streaming: Redis Streams publisher and the SSE consumer; the chat graph already publishes through the interface). M9 to M14 are complete but unmeasured on real data (see their "Not yet verified" sections).
+- **Needs your decision:** whether an answer made only of `ungrounded` claims should abstain (see M14).
+- **Needs an Anthropic key (streaming):** ask one real question over an ingested contract and watch it with `curl -N` (time to first token, how the draft differs from the final text, whether citations validate).
+- **Needs a proxy to try:** the SSE endpoint behind nginx or a load balancer (buffering, idle timeout).
+- **Next milestone:** M16 (Streamlit UI), the first client of the stream, with the `Last-Event-ID` retry loop. M9 to M15 are complete but unmeasured on real data (see their "Not yet verified" sections).
 
-- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13). M14 is uncommitted.
+- Commits on `main`, none pushed: `a5423cd` (M1, M2), `5a18552` (M3), `22c779e` (M4), `7d8411e` (M5 to M9 with the Docker fixes, OpenAI embeddings, Ettin), `22f2e8a` (M10), `72d8c56` (M11 to M13), `e63ecfe` (M14). M15 is committed after it (see `git log`).
 - Slow tests (real Docling): `uv run pytest -m slow` (many minutes on the first run while models load; last run in M7).
-- Next: M15 — SSE streaming.
+- Next: M16 — Streamlit UI.

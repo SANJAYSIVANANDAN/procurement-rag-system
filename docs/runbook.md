@@ -155,7 +155,7 @@ is rebuilt. Never "repair" a key by hand; delete it.
 
 `POST /api/v1/conversations/{id}/messages` stores the question and an empty reply, answers `202`
 with `{user_message_id, assistant_message_id, stream_url, status}`, and writes the reply in a
-background task. Until the SSE endpoint exists (M15), read the finished reply from
+background task. Follow it live at `stream_url` (below), or read the finished reply from
 `GET /conversations/{id}/messages` (`status` is `completed`, `failed` or `interrupted`).
 
 | You see | It means |
@@ -184,6 +184,37 @@ background task. Until the SSE endpoint exists (M15), read the finished reply fr
   10 minutes).
 - **`covenantiq migrate`** now also creates the LangGraph checkpoint tables (`checkpoints`,
   `checkpoint_writes`, `checkpoint_blobs`, `checkpoint_migrations`). It is safe to run repeatedly.
+
+## Streaming a reply (SSE)
+
+`GET /api/v1/conversations/{id}/stream?message_id=<assistant_message_id>` (bearer token,
+`Accept: text/event-stream`). Try it: `curl -N -H "Authorization: Bearer $TOKEN" "$URL"`.
+
+- **Events**, in this order: `message_start`, any `status` and `token`, any `citation`, then exactly one
+  `message_complete` (its `content` is the validated final text: replace the draft with it) or
+  `error`. Every frame has an `id`. A comment ping every 15 s keeps proxies from closing the
+  connection; `X-Accel-Buffering: no` stops nginx buffering it.
+- **Resuming:** reconnect with `Last-Event-ID: <last id>` and the rest arrives, with no duplicates
+  and no gaps. Without it the stream starts again from `message_start`. Reconnecting after the
+  terminal event returns nothing.
+- **Closing the tab never stops a reply.** It finishes in PostgreSQL regardless.
+- **Where events live:** a Redis Stream `ciq:<env>:stream:<message_id>` (about 5,000 entries, expires 10
+  minutes after the reply ends; one hour after it started if the producer died). Token events are
+  merged (every 30 ms or 64 characters), so a token event holds a few words. After expiry, or if
+  Redis lost the events, a finished reply is replayed from PostgreSQL as `message_start`, one `token`
+  with the whole text, the citations and the terminal event (ids `0-1`, `0-2`, ...).
+
+| You see | It means |
+|---|---|
+| `error` with `STREAM_STALLED` | Nothing arrived for `CIQ_STREAM_IDLE_TIMEOUT` (90 s) and the reply is not final: the producer died or is stuck. The sweeper marks it `interrupted` within about 10 minutes (`chat.stale_messages_interrupted`). The client may ask again. |
+| `error` with `INTERRUPTED` | The API restarted mid-reply, or the sweeper gave up on it. |
+| `error` with `GENERATION_FAILED` | The reply failed (replayed from the database); partial text, if any, is in the preceding `token`. |
+| `404` | Not your conversation, or the message is not an answer in that conversation. Existence is never revealed. |
+| Stream works but arrives all at once | A proxy is buffering. Disable response buffering for this path. |
+| `stream.publish_failed` in the API log | Redis refused an event. The reply is unaffected and finishes in PostgreSQL; a listener is served from there. |
+
+- The listener uses its own Redis connection (`stream_redis`) because it waits up to 15 s inside
+  `XREAD BLOCK`, longer than the 2 s timeout the other Redis clients use.
 
 ## Contract analysis
 

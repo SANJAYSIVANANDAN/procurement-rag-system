@@ -26,10 +26,12 @@ from covenantiq.services.document_service import DocumentService
 from covenantiq.services.job_service import JobService
 from covenantiq.services.rate_limiter import RateLimiter
 from covenantiq.services.reembed_service import ReembedService
+from covenantiq.services.stream_service import StreamService
 from covenantiq.services.sweep_service import SweepService
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
 from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
+from covenantiq.streaming.consumer import StreamConsumer
 from tests.fakes import FakeRedis, RecordingDispatcher
 from tests.integration.chat.stack import make_parts
 from tests.unit.graphs.harness import weak_retrieval
@@ -157,6 +159,10 @@ def container(
         dlq_service=DlqService(celery_app.connection_for_write, job_service, dispatcher),
         reembed_service=ReembedService(uow_factory, dispatcher),
         chat_service=chat.service,
+        stream_service=StreamService(
+            StreamConsumer(redis.as_redis(), env="test", idle_timeout=1), uow_factory
+        ),
+        stream_redis=redis.as_redis(),
         contract_analysis_service=contract_analysis,
         vendor_assessment_service=VendorAssessmentService(
             uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config

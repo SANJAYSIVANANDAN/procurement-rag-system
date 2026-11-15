@@ -1,6 +1,9 @@
+from collections.abc import AsyncIterator
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Header, Query, Request, Response, status
+from sse_starlette.sse import EventSourceResponse
 
 from covenantiq.api.deps import ContainerDep, CurrentPrincipal, rate_limit
 from covenantiq.api.schemas.common import ErrorResponse
@@ -52,4 +55,38 @@ async def send_message(
             f"?message_id={submitted.assistant_message_id}"
         ),
         status=submitted.status,
+    )
+
+
+@router.get(
+    "/{conversation_id}/stream",
+    response_class=EventSourceResponse,
+    responses={200: {"content": {"text/event-stream": {}}, "description": "Server-sent events"}},
+)
+async def stream_reply(
+    conversation_id: UUID,
+    request: Request,
+    principal: CurrentPrincipal,
+    container: ContainerDep,
+    message_id: Annotated[UUID, Query()],
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> EventSourceResponse:
+    """The events of one reply: `message_start`, then `status` and `token` events, the `citation`
+    events, and one `message_complete` or `error`. Each frame's `id` can be sent back as
+    `Last-Event-ID` to continue without duplicates or gaps. A reply that is already finished (or
+    whose stream has expired) is replayed from the database. Disconnecting does not stop it."""
+    frames = await container.stream_service.open(
+        principal,
+        conversation_id,
+        message_id,
+        last_event_id=last_event_id,
+        disconnected=request.is_disconnected,
+    )
+
+    async def events() -> AsyncIterator[dict[str, str]]:
+        async for frame in frames:
+            yield {"id": frame.id, "event": frame.event, "data": frame.data}
+
+    return EventSourceResponse(
+        events(), ping=15, headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
     )

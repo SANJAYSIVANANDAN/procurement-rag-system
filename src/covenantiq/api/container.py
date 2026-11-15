@@ -31,6 +31,7 @@ from covenantiq.services.document_service import DocumentService
 from covenantiq.services.job_service import JobService
 from covenantiq.services.rate_limiter import RateLimiter
 from covenantiq.services.reembed_service import ReembedService
+from covenantiq.services.stream_service import StreamService
 from covenantiq.services.sweep_service import SweepService
 from covenantiq.services.task_dispatcher import (
     CeleryTaskDispatcher,
@@ -40,8 +41,9 @@ from covenantiq.services.task_dispatcher import (
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
 from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
+from covenantiq.streaming.consumer import BLOCK_MS, StreamConsumer
 from covenantiq.streaming.locks import ConversationLock
-from covenantiq.streaming.publisher import NullPublisher
+from covenantiq.streaming.publisher import RedisStreamPublisher
 from covenantiq.workers.app_factory import create_celery_app
 from covenantiq.workers.queues import DOCUMENT_PROCESSING
 
@@ -69,6 +71,8 @@ class Container:
     dlq_service: DlqService
     reembed_service: ReembedService
     chat_service: ChatService
+    stream_service: StreamService
+    stream_redis: Redis
     contract_analysis_service: ContractAnalysisService
     vendor_assessment_service: VendorAssessmentService
     vendor_comparison_service: VendorComparisonService
@@ -80,6 +84,7 @@ class Container:
         await self.memory.aclose()
         await self.retrieval.aclose()
         await self.redis.aclose()
+        await self.stream_redis.aclose()
         self.celery_app.close()
         await self.engine.dispose()
 
@@ -98,6 +103,12 @@ def build_container(settings: Settings) -> Container:
         socket_timeout=REDIS_TIMEOUT_SECONDS,
         socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
     )
+    # a listener blocks in XREAD for longer than the short timeout the other clients use
+    stream_redis = Redis.from_url(
+        settings.redis_url.get_secret_value(),
+        socket_timeout=BLOCK_MS / 1000 + REDIS_TIMEOUT_SECONDS,
+        socket_connect_timeout=REDIS_TIMEOUT_SECONDS,
+    )
     llm = build_llm(settings)
     memory = build_memory_manager(settings, uow_factory, redis, llm.provider)
     conversation_service = ConversationService(uow_factory, memory)
@@ -114,7 +125,9 @@ def build_container(settings: Settings) -> Container:
             chat_store=PostgresChatStore(uow_factory),
             rag=rag,
         ),
-        NullPublisher(),  # the Redis Streams publisher arrives with the SSE endpoint
+        RedisStreamPublisher(
+            redis, env=settings.env.value, ttl_seconds=settings.stream_ttl_seconds
+        ),
     )
     chat_service = ChatService(
         conversation_service,
@@ -156,6 +169,13 @@ def build_container(settings: Settings) -> Container:
         dlq_service=DlqService(celery_app.connection_for_write, job_service, dispatcher),
         reembed_service=ReembedService(uow_factory, dispatcher),
         chat_service=chat_service,
+        stream_service=StreamService(
+            StreamConsumer(
+                stream_redis, env=settings.env.value, idle_timeout=settings.stream_idle_timeout
+            ),
+            uow_factory,
+        ),
+        stream_redis=stream_redis,
         contract_analysis_service=contract_analysis,
         vendor_assessment_service=VendorAssessmentService(
             uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config

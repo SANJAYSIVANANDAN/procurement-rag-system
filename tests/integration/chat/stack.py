@@ -27,7 +27,7 @@ from covenantiq.services.chat_service import ChatService
 from covenantiq.services.conversation_service import ConversationService
 from covenantiq.services.dto import Principal
 from covenantiq.streaming.locks import ConversationLock
-from covenantiq.streaming.publisher import InMemoryPublisher
+from covenantiq.streaming.publisher import InMemoryPublisher, RedisStreamPublisher
 from tests.integration.factories import make_chunk, make_clause, make_document
 from tests.integration.memory.helpers import build, new_user
 from tests.unit.graphs.harness import GOOD_ANSWER, SOURCE_TEXT, weak_retrieval
@@ -115,7 +115,7 @@ class Parts:
     service: ChatService
     memory: MemoryManager
     llm: FakeLLMProvider
-    publisher: InMemoryPublisher
+    publisher: InMemoryPublisher | RedisStreamPublisher
     retriever: GatedRetriever
 
 
@@ -148,13 +148,14 @@ def make_parts(
     stale_after: timedelta = timedelta(minutes=10),
     heartbeat_seconds: float = 30.0,
     lock_ttl: int = 120,
+    publisher: InMemoryPublisher | RedisStreamPublisher | None = None,
 ) -> tuple[Parts, ConversationService]:
     memory = build(uow_factory, redis, env)
     conversations = ConversationService(uow_factory, memory.manager)
     llm = FakeLLMProvider()
     llm.script("answer", lambda r: GOOD_ANSWER)
     llm.script("classify", lambda r: {"intent": "document_qa", "is_follow_up": False})
-    publisher = InMemoryPublisher()
+    publisher = publisher or InMemoryPublisher()
     retriever = GatedRetriever(ready)
     rag = RagConfig()
     runner = GraphRunner(
