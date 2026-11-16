@@ -96,11 +96,6 @@ class TestPublishing:
                 task_names.RUN_VENDOR_ASSESSMENT,
                 "vendor_analysis",
             ),
-            (
-                AnalysisJobType.VENDOR_COMPARISON,
-                task_names.RUN_VENDOR_COMPARISON,
-                "vendor_analysis",
-            ),
         ],
     )
     async def test_analysis_tasks_route_to_their_queues(

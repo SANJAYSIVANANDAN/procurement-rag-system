@@ -5,7 +5,6 @@ from covenantiq.db.repositories.chunk_search import ChunkSearchRepository
 from covenantiq.db.repositories.chunks import ChunkRepository
 from covenantiq.db.repositories.citations import CitationRepository
 from covenantiq.db.repositories.clauses import ClauseRepository
-from covenantiq.db.repositories.comparisons import ComparisonRepository
 from covenantiq.db.repositories.conversations import ConversationRepository
 from covenantiq.db.repositories.documents import DocumentRepository
 from covenantiq.db.repositories.findings import FindingRepository
@@ -20,7 +19,6 @@ ALL_REPOSITORIES: tuple[type[Repository], ...] = (
     ChunkSearchRepository,
     CitationRepository,
     ClauseRepository,
-    ComparisonRepository,
     ConversationRepository,
     DocumentRepository,
     FindingRepository,
@@ -38,7 +36,6 @@ __all__ = [
     "ChunkSearchRepository",
     "CitationRepository",
     "ClauseRepository",
-    "ComparisonRepository",
     "ConversationRepository",
     "DocumentRepository",
     "FindingRepository",

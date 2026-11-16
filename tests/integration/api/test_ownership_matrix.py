@@ -41,11 +41,7 @@ OWN_ONLY = {
     ("GET", "/api/v1/conversations"),
     ("POST", "/api/v1/vendors"),
     ("GET", "/api/v1/vendors"),
-    ("POST", "/api/v1/vendors/compare"),  # its vendor_ids are checked below
 }
-# Needs a finished comparison to exist; ownership is asserted in test_vendor_analysis_api
-# (`test_someone_elses_vendors_and_comparisons_are_404`).
-COVERED_ELSEWHERE = {("GET", "/api/v1/vendor-comparisons/{comparison_id}")}
 
 
 @dataclass
@@ -172,9 +168,8 @@ class TestEveryEndpointOfAnotherUser:
             response = await client.request(method, path, json=body)
             if response.status_code != 401:
                 failures.append(f"{method} {template(path)} -> {response.status_code}")
-        for method, path in sorted(OWN_ONLY | COVERED_ELSEWHERE):
-            concrete = path.replace("{comparison_id}", str(uuid4()))
-            response = await client.request(method, concrete)
+        for method, path in sorted(OWN_ONLY):
+            response = await client.request(method, path)
             if response.status_code != 401:
                 failures.append(f"{method} {path} -> {response.status_code}")
         assert failures == []
@@ -237,19 +232,6 @@ class TestReferencesToAnotherUsersThings:
         )
         assert response.status_code in (404, 422)
 
-    async def test_a_comparison_cannot_include_someone_elses_vendor(
-        self, client: httpx.AsyncClient, owned: Owned, mallory: Session
-    ) -> None:
-        mine = (
-            await client.post("/api/v1/vendors", json={"name": "Mine"}, headers=mallory.headers)
-        ).json()
-        response = await client.post(
-            "/api/v1/vendors/compare",
-            json={"vendor_ids": [mine["id"], owned.vendor]},
-            headers=mallory.headers,
-        )
-        assert response.status_code == 404
-
 
 class TestListsShowOnlyYourOwn:
     async def test_user_bs_lists_do_not_contain_user_as_things(
@@ -283,7 +265,7 @@ class TestEveryRouteIsClassified:
             (method, _generic(path))
             for method, path, _ in matrix(Owned("DOC", "JOB", "VEN", "CON", "REP"))
         }
-        known = PUBLIC | OWN_ONLY | COVERED_ELSEWHERE | covered
+        known = PUBLIC | OWN_ONLY | covered
         unclassified = sorted(routes - known)
         assert unclassified == [], (
             "Add these endpoints to the ownership matrix (or exempt them with a reason): "

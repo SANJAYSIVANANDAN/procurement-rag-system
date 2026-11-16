@@ -292,13 +292,14 @@ returns the findings of the latest succeeded analysis (`?job_id=` for another, `
 - Every findings response carries the disclaimer: automated analysis for decision support, not legal
   advice.
 
-## Vendor assessment and comparison
+## Vendor assessment
 
 `POST /vendors/{id}/assess` starts any contract analysis the vendor's ready documents still need,
 then queues the assessment behind them (`pending_dependencies` in the response). Poll the job at
-`GET /jobs/{id}`, then read `GET /vendors/{id}/assessments/latest`. `POST /vendors/compare` compares
-two to five assessed vendors; read the result at `GET /vendor-comparisons/{id}` (`result` is empty
-until the job has succeeded).
+`GET /jobs/{id}`, then read `GET /vendors/{id}/assessments/latest`.
+
+*(Comparing two or more assessed vendors was built in M13, verified end to end, and removed from
+V1. See `systemdesign.md` §14 and `docs/adr/ADR-023.md` for the decisions it made while it existed.)*
 
 | You see | It means |
 |---|---|
@@ -308,11 +309,6 @@ until the job has succeeded).
 | `provisional: true` on an assessment | Less than 60% of the weighted evidence, or fewer than four dimensions assessed. The score is shown but not rankable. |
 | A dimension `insufficient_evidence` or `not_assessed` | Too few of its signals had evidence (`missing_information` lists them and why). Not a fault: the system says what it could not tell. |
 | `notes` on an assessment | A contract analysis failed, an extraction or explanation fell back, or observations were downgraded. |
-| Compare `409 ASSESSMENT_REQUIRED` | A vendor has no completed assessment (`details.vendor_ids`). |
-| Compare `409 INCOMPATIBLE_ASSESSMENTS` | The assessments used different scoring configurations, or an older one than the current. Re-assess. |
-| Compare `409 CONFLICT` | An assessment is older than the vendor's documents or analyses. Re-assess, or send `require_fresh: false`. |
-| `ranking: []` with a reason | A vendor is provisional, or fewer than four dimensions are comparable. By design: no ranking is better than a misleading one. |
-| `narrative_source: "template"` | The model's summary failed validation (or the model was down); the deterministic summary was used. `result.notes` says why. |
 
 - **Configuration** is `config/vendor/signals_v1.yaml` (26 signals, their weights and sources) and
   `config/vendor/scoring_v1.yaml` (dimension weights, risk values, the three absences that count as
@@ -324,7 +320,7 @@ until the job has succeeded).
 - **A killed worker resumes** like a contract analysis: checkpoints per job in PostgreSQL, finished
   steps are not repeated (`analysis.resuming` in the log).
 - **Logs to know:** `vendor.waiting` (a dependency is still running), `vendor.assessed`,
-  `vendor.extraction_failed`, `vendor.retrieval_failed`, `comparison.narrative_failed`.
+  `vendor.extraction_failed`, `vendor.retrieval_failed`.
 - Findings and assessments carry the disclaimer: automated analysis for decision support, not legal
   advice.
 

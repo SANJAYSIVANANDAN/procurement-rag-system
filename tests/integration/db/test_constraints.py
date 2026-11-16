@@ -163,7 +163,6 @@ async def test_analysis_job_target_must_match_its_type(uow_factory: UowFactory) 
             make_analysis_job(
                 scope.owner_id, vendor_id=vendor.id, job_type=AnalysisJobType.VENDOR_ASSESSMENT
             ),
-            make_analysis_job(scope.owner_id, job_type=AnalysisJobType.VENDOR_COMPARISON),
         ):
             _, created = await uow.analysis_jobs.create_or_get_active(scope, job)
             assert created

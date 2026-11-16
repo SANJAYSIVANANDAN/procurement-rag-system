@@ -8,11 +8,7 @@ from covenantiq.db.models.job import DocumentProcessingJob
 from covenantiq.db.models.message import Message
 from covenantiq.db.models.user import User
 from covenantiq.db.models.vendor import Vendor
-from covenantiq.db.models.vendor_risk import (
-    VendorComparison,
-    VendorRiskAssessment,
-    VendorRiskDimension,
-)
+from covenantiq.db.models.vendor_risk import VendorRiskAssessment, VendorRiskDimension
 
 __all__ = [
     "AnalysisJob",
@@ -27,7 +23,6 @@ __all__ = [
     "Message",
     "User",
     "Vendor",
-    "VendorComparison",
     "VendorRiskAssessment",
     "VendorRiskDimension",
 ]

@@ -14,9 +14,7 @@ class JobError(BaseModel):
 
 class JobOut(BaseModel):
     id: UUID
-    kind: Literal[
-        "document_processing", "contract_analysis", "vendor_assessment", "vendor_comparison"
-    ]
+    kind: Literal["document_processing", "contract_analysis", "vendor_assessment"]
     status: JobStatus
     stage: str | None
     progress: float = Field(ge=0, le=1)

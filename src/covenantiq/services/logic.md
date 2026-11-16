@@ -31,7 +31,7 @@ Services are where **transactions, ownership and ordering** are decided. Every p
 
 **Analysis**
 - `contract_analysis_service.py`: start (create job, enqueue), run on a worker, read findings.
-- `vendor_assessment_service.py`, `vendor_comparison_service.py`: check preconditions (e.g. latest assessments exist and are config-compatible), queue, run, read.
+- `vendor_assessment_service.py`: check preconditions (e.g. its contract analyses exist), queue, run, read.
 - `vendor_service.py`: vendor CRUD. `analysis_store.py`, `vendor_store.py`: the graphs' storage ports on PostgreSQL.
 
 **Support**

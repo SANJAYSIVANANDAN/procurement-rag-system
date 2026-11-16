@@ -339,14 +339,6 @@ class ApiClient:
                 return None
             raise
 
-    def compare_vendors(self, vendor_ids: list[str], *, require_fresh: bool = True) -> JSON:
-        """`{comparison_id, job}`."""
-        body = {"vendor_ids": vendor_ids, "require_fresh": require_fresh}
-        return self._request("POST", "/vendors/compare", json=body)  # type: ignore[no-any-return]
-
-    def comparison(self, comparison_id: str) -> JSON:
-        return self._request("GET", f"/vendor-comparisons/{comparison_id}")  # type: ignore[no-any-return]
-
     # ---- helpers ----------------------------------------------------------------------------
 
     @staticmethod

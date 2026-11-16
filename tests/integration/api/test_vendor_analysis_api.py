@@ -1,6 +1,6 @@
-"""The vendor assessment and comparison endpoints through the real application. The services in the
-shared container are swapped for ones that can run a job (real PostgreSQL, real checkpointer,
-fake model); the test plays the part of the workers."""
+"""The vendor assessment endpoints through the real application. The services in the shared
+container are swapped for ones that can run a job (real PostgreSQL, real checkpointer, fake
+model); the test plays the part of the workers."""
 
 import dataclasses
 from collections.abc import Callable
@@ -31,7 +31,6 @@ def container(container: Container, stack: VendorStack) -> Container:  # type: i
         container,
         contract_analysis_service=stack.contract,
         vendor_assessment_service=stack.assessments,
-        vendor_comparison_service=stack.comparisons,
     )
 
 
@@ -216,138 +215,3 @@ class TestReadingAssessments:
         for path in ("assessments", "assessments/latest"):
             response = await client.get(f"/api/v1/vendors/{vendor_id}/{path}", headers=bob.headers)
             assert response.status_code == 404
-
-
-class TestCompare:
-    async def two_assessed(
-        self, client: httpx.AsyncClient, stack: VendorStack, uow_factory: UowFactory, alice: Session
-    ) -> tuple[UUID, UUID]:
-        acme = await vendor_for(alice, stack, uow_factory, "Acme")
-        globex = await vendor_for(alice, stack, uow_factory, "Globex")
-        await assess(client, stack, alice, acme)
-        await assess(client, stack, alice, globex)
-        return acme, globex
-
-    async def test_it_needs_a_login(self, client: httpx.AsyncClient) -> None:
-        body = {"vendor_ids": [str(uuid4()), str(uuid4())]}
-        assert (await client.post("/api/v1/vendors/compare", json=body)).status_code == 401
-        assert (await client.get(f"/api/v1/vendor-comparisons/{uuid4()}")).status_code == 401
-
-    async def test_a_comparison_is_queued_run_and_read_back(
-        self, client: httpx.AsyncClient, stack: VendorStack, uow_factory: UowFactory, alice: Session
-    ) -> None:
-        acme, globex = await self.two_assessed(client, stack, uow_factory, alice)
-        response = await client.post(
-            "/api/v1/vendors/compare",
-            json={"vendor_ids": [str(acme), str(globex)]},
-            headers=alice.headers,
-        )
-        assert response.status_code == 202, response.text
-        comparison_id, job = response.json()["comparison_id"], response.json()["job"]
-        assert job["kind"] == "vendor_comparison" and job["status"] == "queued"
-
-        pending = (
-            await client.get(f"/api/v1/vendor-comparisons/{comparison_id}", headers=alice.headers)
-        ).json()
-        assert (
-            pending["status"] == "queued"
-            and pending["result"] is None
-            and pending["narrative"] is None
-        )
-
-        await stack.comparisons.run(UUID(job["id"]))
-        done = (
-            await client.get(f"/api/v1/vendor-comparisons/{comparison_id}", headers=alice.headers)
-        ).json()
-        assert done["status"] == "succeeded" and done["job"]["kind"] == "vendor_comparison"
-        assert done["result"]["scoring_config_version"] == "vendor_scoring_v1@1.0.0"
-        assert len(done["result"]["dimensions"]) == 6 and done["narrative"]
-        assert done["disclaimer"].startswith("Automated analysis for decision support.")
-        assert done["vendor_ids"] == [str(acme), str(globex)]
-
-    async def test_a_vendor_without_an_assessment_is_a_409_with_its_id(
-        self, client: httpx.AsyncClient, stack: VendorStack, uow_factory: UowFactory, alice: Session
-    ) -> None:
-        acme = await vendor_for(alice, stack, uow_factory, "Acme")
-        globex = await vendor_for(alice, stack, uow_factory, "Globex")
-        await assess(client, stack, alice, acme)
-        response = await client.post(
-            "/api/v1/vendors/compare",
-            json={"vendor_ids": [str(acme), str(globex)]},
-            headers=alice.headers,
-        )
-        assert response.status_code == 409
-        error = response.json()["error"]
-        assert error["code"] == "ASSESSMENT_REQUIRED" and error["details"]["vendor_ids"] == [
-            str(globex)
-        ]
-        assert "Globex" in error["message"]
-
-    async def test_a_stale_assessment_is_a_409_unless_freshness_is_waived(
-        self, client: httpx.AsyncClient, stack: VendorStack, uow_factory: UowFactory, alice: Session
-    ) -> None:
-        from datetime import UTC, datetime, timedelta
-
-        from sqlalchemy import text
-
-        acme, globex = await self.two_assessed(client, stack, uow_factory, alice)
-        async with uow_factory() as uow:
-            await uow.session.execute(
-                text("UPDATE documents SET updated_at = :t WHERE vendor_id = :v"),
-                {"t": datetime.now(UTC) + timedelta(minutes=5), "v": acme},
-            )
-            await uow.commit()
-        body = {"vendor_ids": [str(acme), str(globex)]}
-        stale = await client.post("/api/v1/vendors/compare", json=body, headers=alice.headers)
-        assert stale.status_code == 409 and stale.json()["error"]["code"] == "CONFLICT"
-        waived = await client.post(
-            "/api/v1/vendors/compare", json={**body, "require_fresh": False}, headers=alice.headers
-        )
-        assert waived.status_code == 202
-
-    @pytest.mark.parametrize(
-        "make_body",
-        [
-            lambda a, b: {"vendor_ids": [a]},
-            lambda a, b: {"vendor_ids": [a, a]},
-            lambda a, b: {"vendor_ids": [a, b], "require_fresh": "maybe"},
-            lambda a, b: {"vendor_ids": [a, b], "surprise": 1},
-            lambda a, b: {"vendor_ids": [a, "not-a-uuid"]},
-            lambda a, b: {"vendor_ids": [str(uuid4()) for _ in range(6)]},
-            lambda a, b: {},
-        ],
-    )
-    async def test_bad_bodies_are_422(
-        self,
-        client: httpx.AsyncClient,
-        alice: Session,
-        make_body: Callable[[str, str], dict[str, Any]],
-    ) -> None:
-        a, b = str(uuid4()), str(uuid4())
-        response = await client.post(
-            "/api/v1/vendors/compare", json=make_body(a, b), headers=alice.headers
-        )
-        assert response.status_code == 422
-
-    async def test_someone_elses_vendors_and_comparisons_are_404(
-        self,
-        client: httpx.AsyncClient,
-        stack: VendorStack,
-        uow_factory: UowFactory,
-        alice: Session,
-        make_session: Make,
-    ) -> None:
-        acme, globex = await self.two_assessed(client, stack, uow_factory, alice)
-        bob: Session = await make_session()
-        body = {"vendor_ids": [str(acme), str(globex)]}
-        assert (
-            await client.post("/api/v1/vendors/compare", json=body, headers=bob.headers)
-        ).status_code == 404
-        made = await client.post("/api/v1/vendors/compare", json=body, headers=alice.headers)
-        got = await client.get(
-            f"/api/v1/vendor-comparisons/{made.json()['comparison_id']}", headers=bob.headers
-        )
-        assert got.status_code == 404
-        assert (
-            await client.get(f"/api/v1/vendor-comparisons/{uuid4()}", headers=alice.headers)
-        ).status_code == 404

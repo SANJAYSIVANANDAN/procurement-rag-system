@@ -1,12 +1,14 @@
 # graphs: LangGraph workflows (orchestration only)
 
 ## What it is
-Four LangGraph state machines that sequence the steps of a task: **chat**, **contract analysis**, **vendor assessment**, **vendor comparison**. Nodes are thin: each reads state, calls one engine or port and returns a partial update. Decisions live in `analysis/` and `rag/`.
+Three LangGraph state machines that sequence the steps of a task: **chat**, **contract analysis**, **vendor assessment**. Nodes are thin: each reads state, calls one engine or port and returns a partial update. Decisions live in `analysis/` and `rag/`.
+
+*(A fourth, `vendor_comparison/`, compared two or more assessed vendors. It was built in M13 and removed from V1; see `systemdesign.md` §14.)*
 
 ## Intuition
 A graph is a flowchart with memory. It makes the order of steps, the branches (answer vs. abstain) and the parallel fan-out explicit, and for long jobs it **checkpoints after every step** so a crashed worker resumes instead of restarting and paying for the same LLM calls again.
 
-## The four graphs
+## The three graphs
 **Chat** (`chat/`), no checkpoints (the durable record is the message row):
 ```
 load_context -> classify_intent -+-> respond_direct (greeting etc.)
@@ -21,9 +23,6 @@ load_context -> classify_intent -+-> respond_direct (greeting etc.)
 
 **Vendor assessment** (`vendor_assessment/`), checkpointed:
 `load_vendor_scope -> ensure_contract_findings -> map_findings_to_signals -> fan out 6 dimensions -> validate_signal_evidence -> aggregate -> score_deterministic -> explain_dimensions -> persist`.
-
-**Vendor comparison** (`vendor_comparison/`):
-`load_latest_assessments -> check_config_compatibility -> compute_comparability -> generate_narrative -> validate_narrative_references -> persist`. If the narrative fails or does not check out, a deterministic template summary is used, and the job still succeeds.
 
 ## Shared files
 | File | What it does |

@@ -2,7 +2,7 @@
 
 One checkpoint thread per job (`thread_id = job_id`). A run that finds an unfinished thread resumes
 it (`astream(None)`), so steps that already finished are not repeated, and not paid for again. A
-finished job's checkpoints are deleted. The analysis graphs (contract, vendor, comparison) share
+finished job's checkpoints are deleted. The analysis graphs (contract, vendor assessment) share
 this; each supplies its graph builder and what to do with its custom progress events.
 """
 

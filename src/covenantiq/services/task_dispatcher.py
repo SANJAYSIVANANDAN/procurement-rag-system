@@ -15,7 +15,6 @@ log = get_logger(__name__)
 ANALYSIS_TASK = {
     AnalysisJobType.CONTRACT_ANALYSIS: task_names.RUN_CONTRACT_ANALYSIS,
     AnalysisJobType.VENDOR_ASSESSMENT: task_names.RUN_VENDOR_ASSESSMENT,
-    AnalysisJobType.VENDOR_COMPARISON: task_names.RUN_VENDOR_COMPARISON,
 }
 
 # Fail fast when the broker is down: the caller marks the job failed and answers 503.

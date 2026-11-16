@@ -18,7 +18,6 @@ from covenantiq.api.routers import (
     documents,
     health,
     jobs,
-    vendor_comparisons,
     vendors,
 )
 from covenantiq.core.config import get_settings
@@ -79,7 +78,6 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.include_router(conversations.router, prefix="/api/v1")
     app.include_router(chat.router, prefix="/api/v1")
     app.include_router(vendors.router, prefix="/api/v1")
-    app.include_router(vendor_comparisons.router, prefix="/api/v1")
 
     get_logger(__name__).info("api.created", env=settings.env.value)
     return app

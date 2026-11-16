@@ -30,7 +30,3 @@ min_assessed_dimensions: 4   # fewer assessed dimensions than this makes an asse
 # Upper bounds, exclusive: a score below `low` is low, below `medium` is medium, below `high` is
 # high, anything else is critical.
 severity_bands: {low: 25, medium: 50, high: 75}
-
-comparison:
-  min_coverage_to_compare: 0.6
-  min_comparable_dimensions_to_rank: 4

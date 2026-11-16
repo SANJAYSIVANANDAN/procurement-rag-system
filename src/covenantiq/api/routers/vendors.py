@@ -8,8 +8,6 @@ from covenantiq.api.schemas.assessments import (
     AssessJob,
     AssessmentOut,
     AssessResponse,
-    CompareRequest,
-    CompareResponse,
     DimensionOut,
     DocumentRef,
     MissingInfoOut,
@@ -92,7 +90,7 @@ async def update_vendor(
     return VendorOut.model_validate(vendor)
 
 
-# ---- assessment and comparison ------------------------------------------------------------------
+# ---- assessment ----------------------------------------------------------------------------
 
 
 def assessment_out(dto: Any) -> AssessmentOut:
@@ -128,28 +126,6 @@ def assessment_out(dto: Any) -> AssessmentOut:
         ],
         notes=dto.notes,
     )
-
-
-@router.post(
-    "/compare",
-    response_model=CompareResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(rate_limit("analysis_start"))],
-    responses={
-        409: {
-            "model": ErrorResponse,
-            "description": "A vendor has no completed assessment, the assessments were scored "
-            "with different configurations, or one is out of date.",
-        }
-    },
-)
-async def compare_vendors(
-    payload: CompareRequest, principal: CurrentPrincipal, container: ContainerDep
-) -> CompareResponse:
-    started = await container.vendor_comparison_service.compare(
-        principal, payload.vendor_ids, require_fresh=payload.require_fresh
-    )
-    return CompareResponse(comparison_id=started.comparison_id, job=job_to_out(started.job))
 
 
 @router.post(

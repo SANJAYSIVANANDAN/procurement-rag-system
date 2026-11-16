@@ -6,9 +6,9 @@
 
 It registers a new account, uploads four synthetic contracts (two vendors, written for the
 evaluation dataset, no real data), waits for them to be read and indexed, asks questions over the
-live stream, analyses a contract, assesses both vendors and compares them. It spends real tokens on
-whatever model and embedding provider the stack is configured with (a few cents with a small model).
-The steps depend on each other and run in the order written.
+live stream, analyses a contract, and assesses both vendors. It spends real tokens on whatever
+model and embedding provider the stack is configured with (a few cents with a small model). The
+steps depend on each other and run in the order written.
 """
 
 import io
@@ -20,7 +20,7 @@ from typing import Any, ClassVar
 import pytest
 from docx import Document
 
-from frontend.api_client import ApiClient, ApiError
+from frontend.api_client import ApiClient
 from frontend.sse import ReplyState, stream_events
 
 pytestmark = pytest.mark.skipif(
@@ -191,7 +191,7 @@ def test_a_contract_is_analysed(state: type[State]) -> None:
         assert finding["title"] and finding["clause_status"]
 
 
-def test_both_vendors_are_assessed_and_compared(state: type[State]) -> None:
+def test_both_vendors_are_assessed(state: type[State]) -> None:
     api = state.api
     jobs = {name: api.assess_vendor(vid)["job"]["id"] for name, vid in state.vendors.items()}
     for name, job_id in jobs.items():
@@ -203,22 +203,6 @@ def test_both_vendors_are_assessed_and_compared(state: type[State]) -> None:
             f"\n{name}: overall={latest['overall_score']} {latest['overall_severity']}",
             f"provisional={latest['provisional']} completeness={latest['completeness']:.2f}",
         )
-    try:
-        started = api.compare_vendors(list(state.vendors.values()))
-    except ApiError as error:  # a freshness or configuration precondition would be a real finding
-        raise AssertionError(f"{error.code}: {error.message} {error.details}") from error
-    wait_job(api, started["job"]["id"], "comparison")
-    comparison = api.comparison(started["comparison_id"])
-    result = comparison["result"]
-    print("\nRANKING:", result["ranking"], result["ranking_suppressed_reason"])
-    for dimension in result["dimensions"]:
-        print(
-            " ",
-            dimension["dimension"],
-            "comparable" if dimension["comparable"] else "not comparable",
-        )
-    print("NARRATIVE:", comparison["narrative"])
-    assert result["dimensions"] and comparison["narrative"]
 
 
 def test_every_ui_page_renders_with_the_data_just_created(state: type[State]) -> None:
@@ -242,7 +226,6 @@ def test_every_ui_page_renders_with_the_data_just_created(state: type[State]) ->
         "history": {},
         "analysis": {"analysis_document_id": state.documents["acme_saas"]},
         "vendors": {},
-        "compare": {},
     }
     for module, session in pages.items():
         app = render(module, **session)

@@ -14,7 +14,6 @@ A web application for reviewing procurement contracts. A signed-in user uploads 
 2. **Answers questions** about them in chat, with citations that are checked against the source text, and **declines** when the documents do not contain the answer.
 3. **Analyses a contract** against a rulebook of 30 clause rules, producing findings with a status, severity, confidence and the evidence behind each.
 4. **Assesses a vendor** across all of that vendor's contracts: a deterministic risk score over 6 dimensions.
-5. **Compares vendors** side by side, only where the evidence supports a comparison.
 
 Every user sees only their own data. Output is decision support, not legal advice, and findings carry a disclaimer.
 
@@ -44,7 +43,7 @@ Browser -> Streamlit UI (frontend/)  -- HTTP --> FastAPI (api)  --> services -->
 | `migrate` | One-shot Alembic upgrade (and LangGraph checkpoint tables). |
 | `api` | FastAPI, uvicorn with 2 workers. |
 | `worker-ingest` | Celery: document processing (Docling), embedding, purge. |
-| `worker-analysis` | Celery: contract analysis, vendor assessment, comparison. |
+| `worker-analysis` | Celery: contract analysis, vendor assessment. |
 | `reranker` | Optional cross-encoder model in its own process. |
 | `streamlit` | The web UI. |
 
@@ -90,12 +89,12 @@ Browser -> Streamlit UI (frontend/)  -- HTTP --> FastAPI (api)  --> services -->
 - Also: obligations and deadlines, internal contradictions (candidates found deterministically, model confirms), unusual provisions, evidence validation. Findings include quotes, page and clause references, severity, confidence and a disclaimer.
 - **Checkpointed** per job in PostgreSQL: a dead worker resumes without repeating finished batches.
 
-### 3.5 Vendor assessment and comparison
+### 3.5 Vendor assessment
 - **Assessment**: ensures contract analyses exist, maps findings to **26 signals** (`config/vendor/signals_v1.yaml`) in **6 dimensions** (legal 0.25, data security 0.25, operational 0.20, financial/commercial 0.15, compliance 0.10, dependency 0.05), the model extracts signals per dimension and explains each, **code scores** them (0 to 100, higher is riskier). Absence is a gap that lowers completeness, not the score, except for three named signals where absence is itself a risk (no liability cap, no breach notice, no exit assistance). Weights renormalise over assessed dimensions. Assessments are marked **provisional** when completeness is under 0.6 or fewer than 4 dimensions are assessed. Severity bands: <25 low, <50 medium, <75 high, else critical.
-- **Comparison**: compares only where both vendors have evidence, never ranks an absence against an established clause, suppresses the ranking unless every assessment is complete enough, checks configuration compatibility (409 if incompatible), and attaches a model-written narrative that is validated against the matrix (template fallback; the job never fails on narrative).
+- **Comparing two or more assessed vendors** (never ranking an absence against an established clause, suppressing the ranking unless every assessment is complete enough, a validated model-written narrative with a template fallback) was built in M13, verified end to end in Docker, and **removed from V1** (see §7). The code, schema, UI page and tests were deleted, and a migration drops the `vendor_comparisons` table and the `vendor_comparison` enum value.
 
-### 3.6 Web UI (Streamlit, nine pages)
-Login, dashboard, documents, upload, chat (live streaming, citations, grounding badge), analysis (finding cards, export), vendors, compare (matrix), history. The UI talks to the API only over HTTP and follows SSE with resume.
+### 3.6 Web UI (Streamlit, eight pages)
+Login, dashboard, documents, upload, chat (live streaming, citations, grounding badge), analysis (finding cards, export), vendors, history. The UI talks to the API only over HTTP and follows SSE with resume.
 
 ### 3.7 Operations
 - CLI (`covenantiq`): `migrate`, `check-llm`, `check-embeddings`, `dlq list/replay`, `reembed`, `rerank-serve`, and others.
@@ -107,15 +106,15 @@ Login, dashboard, documents, upload, chat (live streaming, citations, grounding 
 
 ## 4. Data and interfaces
 
-### Main tables (6 Alembic migrations)
-`users`, `vendors`, `documents`, `document_clauses` (parents), `document_chunks` (children + vector + tsvector), `document_processing_jobs`, `conversations`, `messages`, `citations`, `analysis_jobs`, findings and risk-dimension tables, `vendor_risk_assessments`, comparisons; plus LangGraph checkpoint tables. Primary keys are UUIDv7.
+### Main tables (7 Alembic migrations)
+`users`, `vendors`, `documents`, `document_clauses` (parents), `document_chunks` (children + vector + tsvector), `document_processing_jobs`, `conversations`, `messages`, `citations`, `analysis_jobs`, findings and risk-dimension tables, `vendor_risk_assessments`; plus LangGraph checkpoint tables. Primary keys are UUIDv7.
 
 ### API (`/api/v1`)
 - **Auth**: `POST /auth/register`, `/auth/login`, `/auth/token`; `GET /auth/me`.
 - **Documents**: `POST /documents/upload`; `GET /documents`, `/{id}`, `/{id}/status`; `PATCH`, `DELETE /{id}`; `POST /{id}/analyze`; `GET /{id}/findings`.
 - **Jobs**: `GET /jobs/{id}`.
 - **Conversations**: `POST`, `GET` list/detail, `PATCH`; `POST` and `GET /{id}/messages`; `GET /{id}/stream` (SSE).
-- **Vendors**: CRUD, `POST /{id}/assess`, `GET /{id}/assessments`, `/assessments/latest`, `POST /vendors/compare`; `GET /vendor-comparisons/{id}`.
+- **Vendors**: CRUD, `POST /{id}/assess`, `GET /{id}/assessments`, `/assessments/latest`.
 - **Health**: `GET /health/live`, `/health/ready`.
 - Long work returns `202` with a job id; errors use `{error: {code, message, details, request_id}}`.
 
@@ -148,7 +147,11 @@ Provider errors are typed and never contain prompt text or credentials. OpenAI s
 - The **offline regression gate** (real pipeline, fake providers) has a committed baseline (`eval/baselines/offline_v1.0.0.json`). Example values: citation validity 1.0, clause extraction accuracy 1.0, context recall 1.0. It guards against regressions; it says nothing about real-model quality.
 
 ### Verified in Docker with real OpenAI
-Four synthetic contracts uploaded, extracted by Docling in the worker, chunked and embedded; a grounded answer with a validated citation over the live stream; a follow-up; a question the documents cannot answer (declined, no invented figure); history reload; a contract analysis (29 findings; for `acme_saas`, 16 of 23 rules matched the labelled status, and all 7 differences were `insufficient_evidence`, never a wrong risk assertion); both vendors assessed (Acme 10, Globex 22 and provisional); a comparison with narrative and the ranking suppressed; every UI page rendered with that data; no API key and no contract text in about 42,000 log lines.
+Four synthetic contracts uploaded, extracted by Docling in the worker, chunked and embedded; a grounded answer with a validated citation over the live stream; a follow-up; a question the documents cannot answer (declined, no invented figure); history reload; a contract analysis (29 findings; for `acme_saas`, 16 of 23 rules matched the labelled status, and all 7 differences were `insufficient_evidence`, never a wrong risk assertion); both vendors assessed (Acme 10, Globex 22 and provisional); every UI page rendered with that data; no API key and no contract text in about 42,000 log lines.
+
+This run (and the historical count of UI pages, endpoints and tables elsewhere in this file) predates
+the vendor comparison removal below (§7); at the time it was taken, a comparison step also ran and
+passed (narrative, ranking suppressed).
 
 ---
 
@@ -165,6 +168,7 @@ The full list is in `progress.md`. The ones worth knowing:
 - The rate limiter fails open when Redis is unavailable.
 - Chat does not use RabbitMQ.
 - Citation validator additionally requires that numbers in a cited sentence appear in the source.
+- **Vendor comparison** (built in M13, verified end to end in Docker) was removed after the user decided V1 should not have it: the `vendor_comparison` graph, service, repository, API router, schemas (including `ComparisonConfig` and `ComparisonNarrative`), the `compare` UI page, and their tests were all deleted; a new migration (`0007`) drops the `vendor_comparisons` table and the `vendor_comparison` value from the `analysis_job_type` enum (Postgres has no in-place "drop one enum value", so the type is recreated). Vendor **assessment** (single-vendor scoring) is unaffected.
 
 ---
 

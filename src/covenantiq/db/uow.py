@@ -8,7 +8,6 @@ from covenantiq.db.repositories import (
     ChunkSearchRepository,
     CitationRepository,
     ClauseRepository,
-    ComparisonRepository,
     ConversationRepository,
     DocumentRepository,
     FindingRepository,
@@ -41,7 +40,6 @@ class UnitOfWork:
     analysis_jobs: AnalysisJobRepository
     findings: FindingRepository
     assessments: VendorAssessmentRepository
-    comparisons: ComparisonRepository
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
@@ -61,7 +59,6 @@ class UnitOfWork:
         self.analysis_jobs = AnalysisJobRepository(self.session)
         self.findings = FindingRepository(self.session)
         self.assessments = VendorAssessmentRepository(self.session)
-        self.comparisons = ComparisonRepository(self.session)
         return self
 
     async def __aexit__(

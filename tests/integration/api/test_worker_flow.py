@@ -365,40 +365,6 @@ async def test_a_vendor_assessment_whose_documents_were_never_analysed_fails_cle
     assert (body["status"], body["error"]["code"]) == ("failed", "DEPENDENCY_NOT_READY")
 
 
-@pytest.mark.usefixtures("clean_checkpoints", "checkpoint_database")
-async def test_a_comparison_task_for_vendors_without_assessments_fails_with_the_reason(
-    client: httpx.AsyncClient,
-    make_session: MakeSession,
-    uow_factory: Callable[[], UnitOfWork],
-) -> None:
-    from covenantiq.core.enums import AnalysisJobType
-    from covenantiq.db.models import VendorComparison
-
-    session = await make_session()
-    job_id, _ = await vendor_job_for(
-        client, session, uow_factory, job_type=AnalysisJobType.VENDOR_COMPARISON
-    )
-    owner = UUID(session.id)
-    async with uow_factory() as uow:
-        await uow.comparisons.add(
-            OwnershipScope(owner),
-            VendorComparison(
-                owner_id=owner,
-                analysis_job_id=job_id,
-                vendor_ids=[str(uuid4()), str(uuid4())],
-                assessment_ids=[],
-                result={},
-            ),
-        )
-        await uow.commit()
-
-    result = await run("analysis.run_vendor_comparison", str(job_id))
-
-    assert result.state == "REJECTED"
-    body = await job_of(client, session, str(job_id))
-    assert (body["status"], body["error"]["code"]) == ("failed", "ASSESSMENT_REQUIRED")
-
-
 async def test_purge_removes_a_deleted_documents_rows_and_file(
     client: httpx.AsyncClient,
     make_session: MakeSession,

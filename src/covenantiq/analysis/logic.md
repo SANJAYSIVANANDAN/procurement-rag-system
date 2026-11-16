@@ -24,12 +24,13 @@ The LLM is good at reading text and bad at being consistent. So it only **propos
 | `signals.py` | Maps contract findings to signal observations. |
 | `aggregation.py` | Combines a signal across a vendor's documents, conservatively and independent of document order. |
 | `scoring.py` | Risk 0 to 100 (higher is riskier). Gaps lower **completeness**, never the score; weights are renormalised over the dimensions actually assessed, and that is disclosed. A favourable signal can never raise a risk score. |
-| `comparison.py` | Compares vendors only where **both** have evidence. An absence is never ranked as better or worse than an established clause. A ranking is produced only when every assessment is complete enough, otherwise it is suppressed with a reason. |
 | `types.py` | Assessment data models. |
+
+*(`comparison.py`, comparing two or more assessed vendors, was built in M13 and removed from V1.)*
 
 ## Key ideas
 - **Properties are tested** (Hypothesis): order of documents does not matter; gaps do not change scores; favourable signals never raise risk.
-- **Honest uncertainty**: "provisional" assessments, "not comparable" cells, `insufficient_evidence`.
+- **Honest uncertainty**: "provisional" assessments, `insufficient_evidence`.
 - **Import rule**: this package imports nothing from db, services or api.
 
 ## Interview soundbite

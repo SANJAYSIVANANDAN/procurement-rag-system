@@ -73,17 +73,3 @@ Index(
     unique=True,
     postgresql_where=text("is_latest"),
 )
-
-
-class VendorComparison(Base, OwnedMixin):
-    __tablename__ = "vendor_comparisons"
-
-    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
-    analysis_job_id: Mapped[UUID] = mapped_column(
-        ForeignKey("analysis_jobs.id", ondelete="CASCADE")
-    )
-    vendor_ids: Mapped[list[Any]] = mapped_column(JSONB)
-    assessment_ids: Mapped[list[Any]] = mapped_column(JSONB)
-    result: Mapped[dict[str, Any]]
-    narrative: Mapped[str | None]
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

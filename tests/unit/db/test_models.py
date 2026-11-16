@@ -19,7 +19,6 @@ EXPECTED_TABLES = {
     "contract_findings",
     "vendor_risk_assessments",
     "vendor_risk_dimensions",
-    "vendor_comparisons",
 }
 
 # Tables whose rows are reached through a parent, so they carry no owner_id of their own.

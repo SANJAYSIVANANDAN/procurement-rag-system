@@ -16,10 +16,10 @@ Two rules shape this package:
 | `scope.py` | `OwnershipScope(owner_id)`. `scope.apply(statement, Model)` adds `WHERE owner_id = ...` to a query. |
 | `uow.py` | `UnitOfWork`: opens a session, hands out repositories, `commit()`/`rollback()`. Used as `async with uow_factory() as uow`. |
 | `migrations.py` | Runs Alembic upgrades (used by `covenantiq migrate`). Migrations themselves are in `db/migrations/versions`. |
-| `models/` | Tables: `user`, `document`, `chunk` (child, has the embedding), `clause` (parent), `conversation`, `message`, `citation`, `job` (processing and analysis jobs), `analysis` (findings), `vendor`, `vendor_risk` (assessments, comparisons). |
+| `models/` | Tables: `user`, `document`, `chunk` (child, has the embedding), `clause` (parent), `conversation`, `message`, `citation`, `job` (processing and analysis jobs), `analysis` (findings), `vendor`, `vendor_risk` (assessments). |
 | `repositories/base.py` | `Repository` base; `ensure_owned`; `cas_transition` (compare-and-set status update: `UPDATE ... WHERE status = expected` and check the row count). |
 | `repositories/chunk_search.py` | The two retrieval queries: **dense** (pgvector cosine over an HNSW index) and **lexical** (full-text search, `english` tsvector, `websearch_to_tsquery`). Both filter on owner, allowed documents, and "document is ready and not deleted". |
-| `repositories/*.py` | One repository per aggregate: documents, chunks, clauses, conversations, messages, citations, findings, assessments, comparisons, vendors, users, processing jobs, analysis jobs. |
+| `repositories/*.py` | One repository per aggregate: documents, chunks, clauses, conversations, messages, citations, findings, assessments, vendors, users, processing jobs, analysis jobs. |
 
 ## Key ideas
 - **Compare-and-set (CAS)**: job claiming and stage transitions use `UPDATE ... WHERE status IN (...)`. Whoever updates a row wins, so two workers never run the same job and no lock server is needed.

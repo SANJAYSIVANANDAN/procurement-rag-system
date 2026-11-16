@@ -17,7 +17,6 @@ from frontend import navigation, state
 from frontend.pages import (
     analysis,
     chat,
-    compare,
     dashboard,
     documents,
     history,
@@ -80,12 +79,6 @@ def main() -> None:
         "vendors": st.Page(
             vendors.render, title="Vendors", icon=":material/business:", url_path="vendors"
         ),
-        "compare": st.Page(
-            compare.render,
-            title="Vendor comparison",
-            icon=":material/compare_arrows:",
-            url_path="compare",
-        ),
     }
     navigation.register(pages)
     with st.sidebar:
@@ -97,7 +90,7 @@ def main() -> None:
             "Overview": [pages["dashboard"]],
             "Documents": [pages["documents"], pages["upload"]],
             "Chat": [pages["chat"], pages["history"]],
-            "Risk": [pages["analysis"], pages["vendors"], pages["compare"]],
+            "Risk": [pages["analysis"], pages["vendors"]],
         }
     )
     with st.sidebar:

@@ -73,7 +73,6 @@ def test_all_six_tasks_are_registered_with_their_limits(valid_env: dict[str, str
         task_names.PURGE_DOCUMENT: (300, 330, 5),
         task_names.RUN_CONTRACT_ANALYSIS: (1800, 1860, 3),
         task_names.RUN_VENDOR_ASSESSMENT: (2700, 2760, 3),
-        task_names.RUN_VENDOR_COMPARISON: (600, 660, 3),
     }
     for name, (soft, hard, retries) in expected.items():
         task = celery_app.tasks[name]

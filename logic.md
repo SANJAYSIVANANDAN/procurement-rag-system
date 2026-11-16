@@ -19,8 +19,8 @@ Layers only import downward (enforced by import-linter). `core` sits at the bott
 | `ingestion` | Turns an upload into searchable text: validation, storage, Docling extraction, clause (parent) and chunk (child) building, clause-type tagging and a prompt-injection scan. |
 | `ai` | Adapters for the outside models behind small interfaces: LLM (OpenAI, Anthropic, fake), embeddings (OpenAI-compatible, Voyage, fake), reranker (Cohere, local cross-encoder, none, fake), plus the schemas the model must answer in. |
 | `rag` | Retrieval and grounding: hybrid search (vector plus full-text), rank fusion, optional rerank, the evidence gate, context building, citation validation, abstention and caches. |
-| `analysis` | Pure decision code with no model calls: contract rule statuses and severities, red-flag patterns, vendor signals, scoring and comparison. The model proposes; this code decides. |
-| `graphs` | LangGraph workflows: chat, contract analysis, vendor assessment, vendor comparison. Analysis graphs checkpoint to PostgreSQL so a crashed worker resumes. |
+| `analysis` | Pure decision code with no model calls: contract rule statuses and severities, red-flag patterns, vendor signals and scoring. The model proposes; this code decides. |
+| `graphs` | LangGraph workflows: chat, contract analysis, vendor assessment. Analysis graphs checkpoint to PostgreSQL so a crashed worker resumes. |
 | `memory` | Conversation memory: a Redis window of recent turns plus a rolling summary, always rebuildable from PostgreSQL. |
 | `streaming` | Live replies: typed SSE events, a Redis Stream buffer with resumable ids, and the one-reply-at-a-time lock. |
 | `services` | The use cases: upload, ingestion, chat submit, analysis, vendors, jobs, sweeper, dead-letter replay, rate limiting. Own transactions and ownership checks. |

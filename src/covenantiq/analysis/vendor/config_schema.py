@@ -141,11 +141,6 @@ class SeverityBands(_Strict):
         return self
 
 
-class ComparisonConfig(_Strict):
-    min_coverage_to_compare: Annotated[float, Field(ge=0, le=1)]
-    min_comparable_dimensions_to_rank: Annotated[int, Field(ge=1, le=6)] = 4
-
-
 class ScoringConfig(_Strict):
     version: Annotated[str, Field(pattern=VERSION)]
     dimension_weights: dict[RiskDimension, Annotated[float, Field(gt=0)]]
@@ -155,7 +150,6 @@ class ScoringConfig(_Strict):
     provisional_completeness_threshold: Annotated[float, Field(ge=0, le=1)]
     min_assessed_dimensions: Annotated[int, Field(ge=1, le=6)] = 4
     severity_bands: SeverityBands
-    comparison: ComparisonConfig
 
     @model_validator(mode="after")
     def _weights(self) -> "ScoringConfig":

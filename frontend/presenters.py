@@ -388,7 +388,7 @@ def vendor_names(vendors: Iterable[JSON]) -> dict[str, str]:
     return {v["id"]: v["name"] for v in vendors}
 
 
-# ---- vendors and comparison -----------------------------------------------------------------
+# ---- vendors ----------------------------------------------------------------------------------
 
 
 def score_text(score: float | None) -> str:
@@ -406,77 +406,6 @@ def score_bar_html(score: float | None, severity: str) -> str:
         f'<div style="background:{color};width:{width:.0f}%;height:12px;'
         'border-radius:6px"></div></div>'
     )
-
-
-def comparison_matrix(comparison: JSON) -> tuple[list[JSON], list[str]]:
-    """(rows, notes) for the dimension matrix of a finished comparison.
-
-    A row is `{Dimension, <vendor name>: text ...}` plus `_comparable`, `_reason`, `_leader`, and
-    `_cells` (vendor name to score or None, for charts). Cells of a dimension that cannot be
-    compared say so; nothing is ranked or charted for them.
-    """
-    result = comparison.get("result") or {}
-    names = {v["id"]: v["name"] for v in result.get("vendors", [])}
-    rows: list[JSON] = []
-    for dim in result.get("dimensions", []):
-        row: JSON = {"Dimension": DIMENSION_LABEL.get(dim["dimension"], label(dim["dimension"]))}
-        scores: dict[str, float | None] = {}
-        for vendor_id, name in names.items():
-            cell = dim["cells"].get(vendor_id)
-            if not dim["comparable"]:
-                row[name] = "Not comparable"
-            elif cell is None or cell.get("score") is None:
-                row[name] = "n/a"
-            else:
-                row[name] = f"{cell['score']:.0f} ({cell['severity']})"
-            scores[name] = None if cell is None else cell.get("score")
-        row["_comparable"] = dim["comparable"]
-        row["_reason"] = dim.get("reason", "")
-        row["_leader"] = names.get(dim.get("leader") or "", "")
-        row["_cells"] = scores
-        rows.append(row)
-    notes = []
-    if result.get("ranking_suppressed_reason"):
-        notes.append(f"No overall ranking: {result['ranking_suppressed_reason']}")
-    return rows, notes
-
-
-def comparison_chart_data(rows: Iterable[JSON]) -> list[JSON]:
-    """Long-format data for a chart: comparable dimensions only, one point per vendor."""
-    data = []
-    for row in rows:
-        if not row["_comparable"]:
-            continue
-        for vendor, score in row["_cells"].items():
-            if score is not None:
-                data.append({"Dimension": row["Dimension"], "Vendor": vendor, "Risk score": score})
-    return data
-
-
-def signal_rows(comparison: JSON) -> list[JSON]:
-    result = comparison.get("result") or {}
-    names = {v["id"]: v["name"] for v in result.get("vendors", [])}
-    rows = []
-    for signal in result.get("signals", []):
-        row: JSON = {"Signal": signal.get("label") or label(signal.get("signal_id"))}
-        cells = signal.get("cells", {})
-        for vendor_id, name in names.items():
-            cell = cells.get(vendor_id)
-            if not signal.get("comparable", True):
-                row[name] = "Not comparable"
-            elif isinstance(cell, dict):
-                row[name] = cell.get("label") or label(cell.get("status"))
-            else:
-                row[name] = "n/a"
-        row["Note"] = signal.get("reason", "")
-        rows.append(row)
-    return rows
-
-
-def ranking_names(comparison: JSON) -> list[str]:
-    result = comparison.get("result") or {}
-    names = {v["id"]: v["name"] for v in result.get("vendors", [])}
-    return [names.get(i, i) for i in result.get("ranking", [])]
 
 
 def vendor_overview(vendors: Sequence[JSON], latest: dict[str, JSON | None]) -> list[JSON]:

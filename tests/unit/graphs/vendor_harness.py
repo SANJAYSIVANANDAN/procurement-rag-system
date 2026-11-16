@@ -1,4 +1,4 @@
-"""The vendor assessment and comparison graphs on in-memory fakes: no database, no network."""
+"""The vendor assessment graph on in-memory fakes: no database, no network."""
 
 import re
 from collections.abc import Callable, Sequence

@@ -136,14 +136,14 @@ class TestErrors:
     def test_validation_details_are_kept(self, api: ApiClient) -> None:
         body = {
             "error": {
-                "code": "ASSESSMENT_REQUIRED",
+                "code": "CONFLICT",
                 "message": "m",
                 "details": {"vendor_ids": ["v1"]},
             }
         }
-        respx.post(f"{BASE}/vendors/compare").respond(status_code=409, json=body)
+        respx.post(f"{BASE}/vendors").respond(status_code=409, json=body)
         with pytest.raises(ApiError) as caught:
-            api.compare_vendors(["v1", "v2"])
+            api._request("POST", "/vendors", json={"name": "x"})
         assert caught.value.details == {"vendor_ids": ["v1"]}
 
 

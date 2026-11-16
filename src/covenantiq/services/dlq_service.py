@@ -21,7 +21,6 @@ JOB_KIND_BY_TASK: dict[str, JobKind | None] = {
     task_names.PURGE_DOCUMENT: None,  # keyed by document id; there is no job row to reset
     task_names.RUN_CONTRACT_ANALYSIS: ANALYSIS,
     task_names.RUN_VENDOR_ASSESSMENT: ANALYSIS,
-    task_names.RUN_VENDOR_COMPARISON: ANALYSIS,
 }
 
 DEFAULT_LIMIT = 100

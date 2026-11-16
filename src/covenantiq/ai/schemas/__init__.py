@@ -8,7 +8,6 @@ from covenantiq.ai.schemas.analysis import (
 )
 from covenantiq.ai.schemas.chat import IntentClassification, StandaloneQuery
 from covenantiq.ai.schemas.vendor import (
-    ComparisonNarrative,
     DimensionExplanation,
     Mitigation,
     SignalExtraction,
@@ -16,7 +15,6 @@ from covenantiq.ai.schemas.vendor import (
 )
 
 __all__ = [
-    "ComparisonNarrative",
     "ContradictionVerdict",
     "DimensionExplanation",
     "ExtractedValue",

@@ -24,8 +24,7 @@ class AnalysisJob(Base, OwnedMixin):
     __table_args__ = (
         CheckConstraint(
             "(job_type = 'contract_analysis' AND document_id IS NOT NULL) "
-            "OR (job_type = 'vendor_assessment' AND vendor_id IS NOT NULL) "
-            "OR job_type = 'vendor_comparison'",
+            "OR (job_type = 'vendor_assessment' AND vendor_id IS NOT NULL)",
             name="target_matches_type",
         ),
     )

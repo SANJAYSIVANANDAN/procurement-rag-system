@@ -2,17 +2,11 @@
 
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from covenantiq.analysis.contract.status import ExtractionQualityInfo
-from covenantiq.analysis.vendor.comparison import (
-    AssessmentSnapshot,
-    DimensionSnapshot,
-    SignalSnapshot,
-)
 from covenantiq.analysis.vendor.types import EvidenceRef
-from covenantiq.core.enums import AnalysisJobType, DocumentStatus, JobStatus, RiskDimension
+from covenantiq.core.enums import AnalysisJobType, DocumentStatus, JobStatus
 from covenantiq.core.errors import NotFound
 from covenantiq.db.models import Citation, VendorRiskAssessment, VendorRiskDimension
 from covenantiq.db.repositories.analysis_jobs import ACTIVE_STATUSES
@@ -25,12 +19,10 @@ from covenantiq.graphs.vendor_assessment.deps import (
     VendorDocument,
     VendorScope,
 )
-from covenantiq.graphs.vendor_comparison.deps import LoadedAssessment
 from covenantiq.rag.config import AnalysisConfig
 from covenantiq.services.job_service import ANALYSIS, JobService
 
 DOCUMENT_LIMIT = 200
-QUOTES_PER_DIMENSION = 3
 
 
 def evidence_of(citation: Citation) -> EvidenceRef:
@@ -220,104 +212,7 @@ class PostgresVendorStore:
             await uow.commit()
         return assessment_id
 
-    # ---- comparison -------------------------------------------------------------------------
-
-    async def load_assessments(
-        self, owner_id: UUID, vendor_ids: Sequence[UUID]
-    ) -> list[LoadedAssessment]:
-        scope = OwnershipScope(owner_id)
-        loaded: list[LoadedAssessment] = []
-        async with self._uow_factory() as uow:
-            for vendor_id in vendor_ids:
-                assessment = await uow.assessments.latest(scope, vendor_id)
-                vendor = await uow.vendors.get(scope, vendor_id)
-                if assessment is None or vendor is None:
-                    continue
-                by_id = {d.id: d for d in assessment.dimensions}
-                cites = await uow.citations.for_dimensions(scope, list(by_id))
-                quotes: dict[str, list[str]] = {}
-                for citation in cites:
-                    if citation.risk_dimension_id is None:
-                        continue
-                    name = by_id[citation.risk_dimension_id].dimension.value
-                    if len(quotes.setdefault(name, [])) < QUOTES_PER_DIMENSION:
-                        quotes[name].append(citation.quote)
-                loaded.append(
-                    LoadedAssessment(
-                        snapshot=_snapshot(vendor.id, vendor.name, assessment),
-                        scoring_config_version=assessment.scoring_config_version,
-                        quotes=quotes,
-                    )
-                )
-        return loaded
-
-    async def persist_comparison(
-        self,
-        owner_id: UUID,
-        job_id: UUID,
-        comparison_id: UUID,
-        result: dict[str, Any],
-        narrative: str,
-    ) -> None:
-        scope = OwnershipScope(owner_id)
-        async with self._uow_factory() as uow:
-            job = await uow.analysis_jobs.system_get(job_id)
-            if job is None or job.owner_id != owner_id:
-                raise NotFound("Comparison job not found.")
-            if not await uow.comparisons.set_result(scope, comparison_id, result, narrative):
-                raise NotFound("Comparison not found.")
-            await uow.analysis_jobs.system_transition(
-                job_id,
-                [JobStatus.RUNNING],
-                JobStatus.SUCCEEDED,
-                progress=1.0,
-                finished_at=datetime.now(UTC),
-            )
-            await uow.commit()
-
     # ---- progress ---------------------------------------------------------------------------
 
     async def report(self, job_id: UUID, stage: str, fraction: float) -> None:
         await self._jobs.touch(ANALYSIS, job_id, stage=stage, progress=fraction)
-
-
-def _signal_status(row: dict[str, Any]) -> str:
-    """A stored signal as the comparison reads it: what the documents said, before the absent
-    policy turned an absence into a risk value."""
-    if row.get("policy_treated") or row.get("gap") == "absent_in_all_documents":
-        return "absent"
-    if row.get("gap") == "insufficient_evidence":
-        return "insufficient_evidence"
-    return str(row["status"])
-
-
-def _snapshot(vendor_id: UUID, name: str, assessment: VendorRiskAssessment) -> AssessmentSnapshot:
-    signals = [
-        SignalSnapshot(
-            signal_id=row["signal_id"],
-            dimension=dimension.dimension,
-            label=row.get("label", row["signal_id"]),
-            status=_signal_status(row),
-            policy_treated=bool(row.get("policy_treated")),
-        )
-        for dimension in assessment.dimensions
-        for row in dimension.signals
-    ]
-    return AssessmentSnapshot(
-        vendor_id=vendor_id,
-        vendor_name=name,
-        assessment_id=assessment.id,
-        overall_score=assessment.overall_score,
-        provisional=assessment.provisional,
-        dimensions=[
-            DimensionSnapshot(
-                dimension=RiskDimension(d.dimension),
-                status=d.status,
-                score=d.score,
-                severity=d.severity,
-                coverage=d.coverage,
-            )
-            for d in assessment.dimensions
-        ],
-        signals=signals,
-    )

@@ -89,7 +89,6 @@ class GroundingStatus(StrEnum):
 class AnalysisJobType(StrEnum):
     CONTRACT_ANALYSIS = "contract_analysis"
     VENDOR_ASSESSMENT = "vendor_assessment"
-    VENDOR_COMPARISON = "vendor_comparison"
 
 
 class RiskCategory(StrEnum):

@@ -16,7 +16,7 @@ A request enters, middleware tags it, a dependency identifies the user and rate-
 | `limits.py` | `BodySizeLimitMiddleware`: rejects oversized uploads while streaming (413), before the whole file is read. |
 | `errors.py` | Handlers for domain errors, validation errors, HTTP errors and unexpected errors. One JSON shape: `{error: {code, message, details, request_id}}`. Unexpected errors never leak internals. |
 | `background.py` | `declare_broker_topology` and `sweep_loop`. |
-| `routers/` | `auth`, `documents`, `analysis`, `jobs`, `conversations`, `chat` (including the SSE stream), `vendors`, `vendor_comparisons`, `health` (live/ready). |
+| `routers/` | `auth`, `documents`, `analysis`, `jobs`, `conversations`, `chat` (including the SSE stream), `vendors`, `health` (live/ready). |
 | `schemas/` | Pydantic request and response models, separate from DB models so the wire format can evolve independently. |
 
 ## Request lifecycle

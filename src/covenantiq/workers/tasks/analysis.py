@@ -61,23 +61,3 @@ def run_vendor_assessment(
             )
         raise self.retry(countdown=DEPENDENCY_WAIT_SECONDS, max_retries=MAX_DEPENDENCY_WAITS)
     return outcome
-
-
-@celery_app.task(
-    bind=True,
-    base=CovenantTask,
-    name=task_names.RUN_VENDOR_COMPARISON,
-    job_kind=ANALYSIS,
-    max_retries=3,
-    retry_backoff_max=300,
-    soft_time_limit=600,
-    time_limit=660,
-)
-def run_vendor_comparison(
-    self: CovenantTask, job_id: str, *, request_id: str = ""
-) -> dict[str, Any]:
-    return runtime.run_async(
-        runtime.container().vendor_comparison_service.run(
-            UUID(job_id), attempt=self.request.retries
-        )
-    )

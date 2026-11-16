@@ -39,7 +39,6 @@ from covenantiq.services.task_dispatcher import (
     TaskDispatcher,
 )
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
-from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
 from covenantiq.streaming.consumer import BLOCK_MS, StreamConsumer
 from covenantiq.streaming.locks import ConversationLock
@@ -75,7 +74,6 @@ class Container:
     stream_redis: Redis
     contract_analysis_service: ContractAnalysisService
     vendor_assessment_service: VendorAssessmentService
-    vendor_comparison_service: VendorComparisonService
     memory: MemoryManager
     retrieval: RetrievalEngine
 
@@ -179,9 +177,6 @@ def build_container(settings: Settings) -> Container:
         contract_analysis_service=contract_analysis,
         vendor_assessment_service=VendorAssessmentService(
             uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config
-        ),
-        vendor_comparison_service=VendorComparisonService(
-            uow_factory, dispatcher, job_service, vendor_config
         ),
         memory=memory,
         retrieval=retrieval,

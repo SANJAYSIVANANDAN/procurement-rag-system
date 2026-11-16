@@ -16,7 +16,7 @@ A worker task is a **thin, synchronous wrapper**: it receives a job id, bridges 
 | `heartbeat.py` | While a job runs, touches its `heartbeat_at` every 30 s. Another worker can take over a job whose heartbeat is older than 10 minutes. |
 | `signals.py` | Worker lifecycle hooks: configure logging, init and shut down the runtime, declare the DLQ topology. |
 | `tasks/ingestion.py` | `process_document`, `embed_document`, `purge_document`. |
-| `tasks/analysis.py` | Contract analysis, vendor assessment and vendor comparison tasks. |
+| `tasks/analysis.py` | Contract analysis and vendor assessment tasks. |
 
 ## How a document moves
 ```

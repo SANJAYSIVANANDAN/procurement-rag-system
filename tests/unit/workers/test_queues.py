@@ -57,7 +57,6 @@ EXPECTED = {
     task_names.EMBED_DOCUMENT: "embedding_generation",
     task_names.RUN_CONTRACT_ANALYSIS: "contract_analysis",
     task_names.RUN_VENDOR_ASSESSMENT: "vendor_analysis",
-    task_names.RUN_VENDOR_COMPARISON: "vendor_analysis",
 }
 
 

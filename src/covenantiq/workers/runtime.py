@@ -28,8 +28,6 @@ from covenantiq.graphs.contract_analysis.deps import AnalysisDeps
 from covenantiq.graphs.contract_analysis.runner import ContractAnalysisRunner
 from covenantiq.graphs.vendor_assessment.deps import VendorDeps
 from covenantiq.graphs.vendor_assessment.runner import VendorAssessmentRunner
-from covenantiq.graphs.vendor_comparison.deps import ComparisonDeps
-from covenantiq.graphs.vendor_comparison.runner import VendorComparisonRunner
 from covenantiq.ingestion.extraction.base import DocumentExtractor
 from covenantiq.ingestion.extraction.docling_extractor import DoclingExtractor
 from covenantiq.ingestion.storage import FileStorage, LocalFileStorage
@@ -43,7 +41,6 @@ from covenantiq.services.ingestion_service import ChunkingConfig, IngestionServi
 from covenantiq.services.job_service import JobService
 from covenantiq.services.task_dispatcher import CeleryTaskDispatcher, TaskDispatcher
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
-from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_store import PostgresVendorStore
 from covenantiq.workers.app_factory import create_celery_app
 
@@ -60,7 +57,6 @@ class WorkerContainer:
     embedder: EmbeddingProvider
     contract_analysis_service: ContractAnalysisService
     vendor_assessment_service: VendorAssessmentService
-    vendor_comparison_service: VendorComparisonService
     retrieval: RetrievalEngine
 
     async def aclose(self) -> None:
@@ -150,19 +146,6 @@ def build_worker_container(
             max_concurrency=settings.analysis_max_concurrency,
         ),
     )
-    comparison_service = VendorComparisonService(
-        uow_factory,
-        dispatcher,
-        job_service,
-        vendor_config,
-        VendorComparisonRunner(
-            ComparisonDeps(
-                llm=llm.provider, routes=llm.routes, store=vendor_store, config=vendor_config
-            ),
-            vendor_store,
-            checkpointer,
-        ),
-    )
     return WorkerContainer(
         settings=settings,
         engine=engine,
@@ -187,7 +170,6 @@ def build_worker_container(
         embedder=embedder,
         contract_analysis_service=analysis_service,
         vendor_assessment_service=assessment_service,
-        vendor_comparison_service=comparison_service,
         retrieval=retrieval,
     )
 

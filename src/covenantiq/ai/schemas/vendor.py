@@ -1,4 +1,4 @@
-"""What the model returns for vendor assessment and comparison (spec 17.4, 21.6).
+"""What the model returns for vendor assessment (spec 17.4, 21.6).
 
 Deliberately no numeric field anywhere: the model classifies and explains; scores, weights and
 rankings come from the pure engine. A severity is a category the engine maps to a number.
@@ -31,7 +31,3 @@ class Mitigation(BaseModel):
 class DimensionExplanation(BaseModel):
     reasoning: str = Field(description="At most 1200 characters; name signals by their id.")
     mitigations: list[Mitigation] = Field(default_factory=list)
-
-
-class ComparisonNarrative(BaseModel):
-    summary: str = Field(description="150 to 300 words.")

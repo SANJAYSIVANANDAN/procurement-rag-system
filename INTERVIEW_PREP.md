@@ -29,7 +29,7 @@ a strength, not a weakness.
 14. Streaming (SSE): producer, Redis Stream, consumer, resume, replay
 15. Conversation memory
 16. Contract analysis (risk findings)
-17. Vendor assessment and comparison (the scoring maths)
+17. Vendor assessment (the scoring maths)
 18. The LLM layer (providers, routes, retries, fakes)
 19. Authentication, authorization, and the other security controls
 20. The Streamlit UI
@@ -90,10 +90,9 @@ boundaries enforced by import-linter in CI."
 | 7 | Conversation memory | Redis window of recent turns + rolling summary, rebuilt from PostgreSQL if Redis loses it |
 | 8 | Contract risk analysis | 25-rule baseline ruleset (23 apply to a SaaS contract), obligations, contradictions, unusual provisions, evidence-validated findings |
 | 9 | Vendor assessment | 26 signals into 6 risk dimensions, pure deterministic scoring, completeness and "provisional" flags |
-| 10 | Vendor comparison | Side-by-side matrix, "not comparable" where evidence is missing, suppressed ranking, validated narrative |
-| 11 | Streamlit UI | Nine pages: login, dashboard, library, upload, chat, analysis, vendors, comparison, history |
-| 12 | Evaluation | Synthetic dataset, custom metrics, RAGAS adapter, regression gate against a committed baseline |
-| 13 | Operations | Health/readiness, job sweeper, dead-letter queues and replay CLI, re-embed CLI, `check-llm`/`check-embeddings` |
+| 10 | Streamlit UI | Eight pages: login, dashboard, library, upload, chat, analysis, vendors, history |
+| 11 | Evaluation | Synthetic dataset, custom metrics, RAGAS adapter, regression gate against a committed baseline |
+| 12 | Operations | Health/readiness, job sweeper, dead-letter queues and replay CLI, re-embed CLI, `check-llm`/`check-embeddings` |
 
 ### 2.2 The user journey in one picture
 
@@ -104,10 +103,10 @@ upload file ──► API validates & stores ──► job row (queued) + Rabbit
                                                    │
                                    document status = ready (PostgreSQL)
                                                    │
-        ┌──────────────────────────────┬───────────┴─────────────┬───────────────────────┐
-        ▼                              ▼                         ▼                       ▼
-   chat (API process,           contract analysis        vendor assessment        vendor comparison
-   SSE via Redis Stream)        (analysis worker)        (analysis worker)        (analysis worker)
+        ┌──────────────────────────────┬───────────────────────┐
+        ▼                              ▼                       ▼
+   chat (API process,           contract analysis        vendor assessment
+   SSE via Redis Stream)        (analysis worker)        (analysis worker)
 ```
 
 ---
@@ -136,9 +135,9 @@ frontend is a separate, small image (no backend dependencies).
 ```
 api/        HTTP only: routers, schemas, dependencies, middleware, the Container (composition root)
 services/   Use cases: orchestrate repositories, graphs, dispatcher. Transaction boundaries live here.
-graphs/     LangGraph pipelines (chat, contract analysis, vendor assessment, vendor comparison)
+graphs/     LangGraph pipelines (chat, contract analysis, vendor assessment)
 rag/        Retrieval engine, fusion, context building, evidence gate, citation validator
-analysis/   Pure domain logic: contract rules/status logic, vendor signals/scoring/comparison
+analysis/   Pure domain logic: contract rules/status logic, vendor signals/scoring
 ai/         Ports and adapters: LLM, embeddings, reranker, prompts, output schemas
 ingestion/  Validation, Docling extraction, clause building, chunking, injection scan, storage
 memory/     Conversation memory (Redis window + summary, reconstruction from PostgreSQL)
@@ -444,7 +443,7 @@ It is another place where "the loop runs a background task next to the main work
 | `document_clauses` | detected clauses | `clause_ref`, heading path, clause types, page range (nullable: DOCX has no pages) |
 | `document_chunks` | retrieval units | `text`, `token_count`, `embedding vector(1024)`, `embedding_model`, `clause_types[]`, `tsv` (generated tsvector), injection score |
 | `document_processing_jobs` | ingestion job state | stage, progress, attempt, heartbeat |
-| `analysis_jobs` | analysis/assessment/comparison jobs | `job_type`, state, heartbeat, `scoring_config_version`, stats |
+| `analysis_jobs` | analysis/assessment jobs | `job_type`, state, heartbeat, `scoring_config_version`, stats |
 | `contract_findings` | one per rule/pass | `rule_id`, `clause_status`, `severity`, explanation, impact, action, `confidence`, `evidence_sufficiency`, `details` JSONB |
 | `conversations` | chat threads | `last_message_seq`, `last_completed_seq`, `summary`, `summary_through_seq`, archived |
 | `conversation_documents` | scope of a conversation | link table |
@@ -452,7 +451,6 @@ It is another place where "the loop runs a background task next to the main work
 | `citations` | per assistant message | marker, document/clause/chunk ids, quote, pages, `validated` |
 | `vendor_risk_assessments` | one per assessment | overall score, severity, completeness, `provisional`, weights, `is_latest` |
 | `vendor_risk_dimensions` | six per assessment | score, severity, coverage, status, reasoning, signals, evidence |
-| `vendor_comparisons` | a comparison result | vendor ids, assessment ids, `result` JSONB, narrative |
 
 Plus the LangGraph **checkpoint tables** (`checkpoints`, `checkpoint_writes`, `checkpoint_blobs`,
 `checkpoint_migrations`) created by `covenantiq migrate`.
@@ -614,7 +612,6 @@ vectors (PostgreSQL), uploaded files (a volume). Celery *messages* are in Rabbit
 | Embed a document's chunks | `ingest.embed_document` | `embedding_generation` |
 | Analyse a contract | `analysis.run_contract_analysis` | `contract_analysis` |
 | Assess a vendor | `analysis.run_vendor_assessment` | `vendor_analysis` |
-| Compare vendors | `analysis.run_vendor_comparison` | `vendor_analysis` |
 
 **Chat does not use RabbitMQ.** It runs as an asyncio task in the API process (section 6.4)
 because it is interactive, latency-sensitive and streamed; a queue hop would add latency and
@@ -640,7 +637,7 @@ complicate streaming. Stating this clearly in an interview shows you chose per w
 | `task_acks_late` | True | Ack only after the task finishes: a worker that dies mid-task gets the message redelivered |
 | `task_reject_on_worker_lost` | True | If the child is killed (OOM), the message is requeued |
 | `worker_prefetch_multiplier` | 1 | One message at a time per child; long tasks do not hoard messages behind them |
-| `soft_time_limit` / `time_limit` | per task (e.g. process 900/960 s, embed 1500/1560, contract analysis 1800/1860, vendor assessment 2700/2760, comparison 600/660) | Soft limit raises inside the task so we can clean up; hard limit kills |
+| `soft_time_limit` / `time_limit` | per task (e.g. process 900/960 s, embed 1500/1560, contract analysis 1800/1860, vendor assessment 2700/2760) | Soft limit raises inside the task so we can clean up; hard limit kills |
 | `rate_limit` | `30/m` on embed | Throttle provider calls |
 | serializer | JSON only | No pickle (security) |
 | `broker_connection_timeout` | 3 s | An unreachable broker fails fast |
@@ -1107,7 +1104,7 @@ analysis for decision support. Not legal advice.").
 
 ---
 
-## 17. Vendor assessment and comparison (the scoring maths)
+## 17. Vendor assessment (the scoring maths)
 
 **The LLM never writes a number.** Models read contract text into *signal statuses*; everything
 numeric is deterministic code.
@@ -1156,24 +1153,19 @@ has a quirk recorded in ADR-023 (unfavorable-low scores 30, below ambiguous 50).
   extremes; renormalized weights sum to one.
 - **Reproducibility**: because the config version is stored, a historical score can be recomputed.
 
-### 17.5 Comparison (`analysis/vendor/comparison.py`, `graphs/vendor_comparison/`)
+### 17.5 Comparison — built, then removed
 
-Preconditions (each a `409` naming the vendors): every vendor has an assessment; same scoring
-config version (else `INCOMPATIBLE_ASSESSMENTS`); assessments are not stale relative to their
-documents (waivable with `require_fresh=false`).
-
-- A **dimension is comparable only if every vendor is assessed** on it with coverage >= 0.6; the
-  reason per vendor is recorded. Not comparable cells are shaded and labelled in the UI and **never
-  charted**.
-- A **signal** is comparable if every vendor has evidence-based status (or all are absent alike);
-  "absent vs favorable" is `Missing in Globex: cannot compare`; a policy absence is compared and
-  labelled.
-- **Ranking is suppressed** (with a reason) if any vendor is provisional or fewer than 4 dimensions
-  are comparable. Vendor order never changes the result.
-- **Narrative**: a model writes a summary (100-350 words) which is **validated**: it must not
-  compare a not-comparable dimension, invent a vendor/dimension id, state an uncomputed number, or
-  rank without a ranking; if it fails validation, a deterministic template summary is used and the
-  job still succeeds.
+A fifth graph (`graphs/vendor_comparison/`) compared two to five assessed vendors: a dimension was
+comparable only if every vendor was assessed on it with coverage >= 0.6, a ranking was suppressed
+(with a reason) if any vendor was provisional or fewer than 4 dimensions were comparable, and a
+model-written narrative was validated against the computed matrix with a deterministic template
+fallback. It was built in M13, verified end to end in Docker against two real vendors, and then
+**removed from V1** at the user's request: the graph, service, repository, API router, UI page and
+their tests were deleted, and a migration drops the `vendor_comparisons` table and the
+`vendor_comparison` value from the `analysis_job_type` enum. If asked about it in an interview, the
+honest answer is: it worked, it was cut to keep V1's scope to single-vendor assessment, and the
+architecture (ports, deterministic scoring, checkpointed graphs) made removing it a contained
+change — no other feature depended on it.
 
 ### 17.6 Dependencies and waiting
 
@@ -1365,8 +1357,9 @@ happened.
 - Docker Compose stack with a real model (`gpt-4o-mini`) and `text-embedding-3-small`: 4 contracts
   uploaded, extracted by Docling in the worker, chunked, embedded; a grounded answer with a
   validated citation over live SSE; a follow-up; an unanswerable question declined; contract
-  analysis (23 rules); two vendor assessments; a comparison with narrative; every UI page rendered
-  with that data. No key or contract text in 42k log lines.
+  analysis (23 rules); two vendor assessments; a comparison with narrative (comparison has since
+  been removed from V1); every UI page rendered with that data. No key or contract text in 42k log
+  lines.
 - First real-model quality signal: on one contract, 16 of 23 rules matched the labelled status;
   all 7 differences were `insufficient_evidence` (cautious), none a wrong risk. **One contract, one
   run: not a measurement.**
@@ -1467,8 +1460,8 @@ happened.
 
 **RabbitMQ / Celery**
 
-19. *What is RabbitMQ doing here?* Section 9.1: ingestion, embedding, purge, analysis, assessment,
-    comparison; not chat.
+19. *What is RabbitMQ doing here?* Section 9.1: ingestion, embedding, purge, analysis, assessment;
+    not chat.
 20. *How do you handle duplicate deliveries?* CAS claim in PostgreSQL + idempotent work.
 21. *What if the worker dies?* Late ack + reject_on_worker_lost redeliver; heartbeat takeover after
     10 minutes; sweeper reaps lost jobs; DLQ for permanent failures.
@@ -1560,15 +1553,14 @@ ratio 0.95; degraded job threshold 50%; concurrency 3.
 
 **Vendor scoring:** dimension weights 0.25/0.25/0.20/0.15/0.10/0.05; risk values 10/50/30/55/80/100;
 min dimension coverage 0.5; provisional below 0.6 completeness or fewer than 4 dimensions;
-severity bands 25/50/75; comparison coverage 0.6; ranking needs 4 comparable dimensions; 26
-signals; 6 dimensions.
+severity bands 25/50/75; 26 signals; 6 dimensions.
 
 **Redis:** session TTL 7,200 s; window 3,000 tokens; summary 600 tokens; stream TTL 600 s (3,600 s
 safety); lock TTL 120 s, heartbeat 30 s; sweep lock 55 s; redispatch guard 600 s; SSE ping 15 s; XREAD
 block 15 s; stream idle timeout 90 s; stream MAXLEN ~ 5,000; token flush 30 ms / 64 chars.
 
 **Celery:** soft/hard limits: process 900/960 s, embed 1500/1560, purge 300/330, contract analysis
-1800/1860, vendor assessment 2700/2760, comparison 600/660; retries 3 (embed 5); backoff 5 s x 2^n
+1800/1860, vendor assessment 2700/2760; retries 3 (embed 5); backoff 5 s x 2^n
 with jitter; heartbeat 30 s; stale heartbeat 10 min; sweep every 60 s; stuck queued 5 min;
 dependency wait 30 s x 20; ingest concurrency 2, analysis concurrency 4; prefetch 1.
 

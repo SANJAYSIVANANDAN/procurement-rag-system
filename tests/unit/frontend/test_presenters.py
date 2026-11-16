@@ -1,4 +1,4 @@
-"""Presentation logic: markers, grouping, exports, the comparison matrix. No Streamlit."""
+"""Presentation logic: markers, grouping, exports. No Streamlit."""
 
 import csv
 import io
@@ -135,99 +135,6 @@ class TestFindings:
         assert "## Critical" in text and "### Liability" in text and "Title LIAB-002" in text
         assert "## Obligations and deadlines" in text and "send notice" in text
         assert text.rstrip().endswith("Not advice.")
-
-
-class TestComparison:
-    COMPARISON: ClassVar[dict] = {
-        "result": {
-            "vendors": [{"id": "a", "name": "Acme"}, {"id": "g", "name": "Globex"}],
-            "ranking": ["a", "g"],
-            "ranking_suppressed_reason": None,
-            "dimensions": [
-                {
-                    "dimension": "legal",
-                    "comparable": True,
-                    "leader": "a",
-                    "cells": {
-                        "a": {"score": 20.0, "severity": "low"},
-                        "g": {"score": 55.0, "severity": "medium"},
-                    },
-                },
-                {
-                    "dimension": "data_security",
-                    "comparable": False,
-                    "reason": "Globex: coverage 0.30",
-                    "leader": None,
-                    "cells": {
-                        "a": {"score": 30.0, "severity": "low"},
-                        "g": {"score": 70.0, "severity": "high"},
-                    },
-                },
-            ],
-            "signals": [
-                {
-                    "signal_id": "OPS-SLA",
-                    "label": "Uptime SLA",
-                    "comparable": False,
-                    "reason": "Missing in Globex — cannot compare",
-                    "cells": {
-                        "a": {"status": "favorable"},
-                        "g": {"status": "insufficient_evidence"},
-                    },
-                },
-                {
-                    "signal_id": "FIN-RENEW",
-                    "label": "Auto-renewal",
-                    "comparable": True,
-                    "cells": {
-                        "a": {"status": "favorable"},
-                        "g": {"status": "absent", "label": "Absent (policy)"},
-                    },
-                },
-            ],
-        }
-    }
-
-    def test_a_dimension_that_cannot_be_compared_says_so_in_every_cell(self) -> None:
-        rows, _ = p.comparison_matrix(self.COMPARISON)
-        legal, security = rows
-        assert (
-            legal["Acme"] == "20 (low)"
-            and legal["Globex"] == "55 (medium)"
-            and legal["_leader"] == "Acme"
-        )
-        assert security["Acme"] == security["Globex"] == "Not comparable"
-        assert security["_reason"] == "Globex: coverage 0.30"
-
-    def test_only_comparable_dimensions_are_charted(self) -> None:
-        rows, _ = p.comparison_matrix(self.COMPARISON)
-        data = p.comparison_chart_data(rows)
-        assert {d["Dimension"] for d in data} == {"Legal"}
-        assert sorted((d["Vendor"], d["Risk score"]) for d in data) == [
-            ("Acme", 20.0),
-            ("Globex", 55.0),
-        ]
-
-    def test_signals_show_not_comparable_and_policy_labels(self) -> None:
-        rows = p.signal_rows(self.COMPARISON)
-        assert (
-            rows[0]["Acme"] == rows[0]["Globex"] == "Not comparable"
-            and "Missing in Globex" in rows[0]["Note"]
-        )
-        assert rows[1]["Globex"] == "Absent (policy)"
-
-    def test_ranking_names_and_a_suppressed_ranking_note(self) -> None:
-        assert p.ranking_names(self.COMPARISON) == ["Acme", "Globex"]
-        suppressed = {
-            "result": {
-                **self.COMPARISON["result"],
-                "ranking": [],
-                "ranking_suppressed_reason": "one vendor is provisional",
-            }
-        }
-        assert p.comparison_matrix(suppressed)[1] == [
-            "No overall ranking: one vendor is provisional"
-        ]
 
 
 class TestSmallThings:

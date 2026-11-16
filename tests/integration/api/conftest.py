@@ -29,7 +29,6 @@ from covenantiq.services.reembed_service import ReembedService
 from covenantiq.services.stream_service import StreamService
 from covenantiq.services.sweep_service import SweepService
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
-from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_service import VendorService
 from covenantiq.streaming.consumer import StreamConsumer
 from tests.fakes import FakeRedis, RecordingDispatcher
@@ -166,9 +165,6 @@ def container(
         contract_analysis_service=contract_analysis,
         vendor_assessment_service=VendorAssessmentService(
             uow_factory, dispatcher, job_service, contract_analysis, get_ruleset(), vendor_config
-        ),
-        vendor_comparison_service=VendorComparisonService(
-            uow_factory, dispatcher, job_service, vendor_config
         ),
         memory=chat.memory,
         retrieval=build_retrieval_engine(settings, uow_factory),

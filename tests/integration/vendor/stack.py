@@ -1,5 +1,5 @@
-"""Vendor assessment and comparison on real PostgreSQL: a vendor with documents, the contract
-analysis service in front of it, and the vendor services, with a fake model."""
+"""Vendor assessment on real PostgreSQL: a vendor with documents, the contract analysis service
+in front of it, and the vendor assessment service, with a fake model."""
 
 from dataclasses import dataclass
 from typing import Any
@@ -10,7 +10,6 @@ from sqlalchemy import update
 from covenantiq.ai.llm.fake import FakeLLMProvider
 from covenantiq.ai.llm.routes import RouteTable
 from covenantiq.ai.schemas import (
-    ComparisonNarrative,
     DimensionExplanation,
     ObligationExtraction,
     RuleAssessmentBatch,
@@ -25,8 +24,6 @@ from covenantiq.graphs.contract_analysis.deps import AnalysisDeps
 from covenantiq.graphs.contract_analysis.runner import ContractAnalysisRunner
 from covenantiq.graphs.vendor_assessment.deps import VendorDeps
 from covenantiq.graphs.vendor_assessment.runner import VendorAssessmentRunner
-from covenantiq.graphs.vendor_comparison.deps import ComparisonDeps
-from covenantiq.graphs.vendor_comparison.runner import VendorComparisonRunner
 from covenantiq.rag.citations import CitationValidator
 from covenantiq.rag.config import RagConfig
 from covenantiq.services.analysis_store import PostgresAnalysisStore
@@ -34,14 +31,12 @@ from covenantiq.services.contract_analysis_service import ContractAnalysisServic
 from covenantiq.services.dto import Principal
 from covenantiq.services.job_service import JobService
 from covenantiq.services.vendor_assessment_service import VendorAssessmentService
-from covenantiq.services.vendor_comparison_service import VendorComparisonService
 from covenantiq.services.vendor_store import PostgresVendorStore
 from tests.fakes import RecordingDispatcher
 from tests.integration.analysis.stack import RULESET, UowFactory
 from tests.integration.chat.stack import GatedRetriever, retrieval_for, seed_document
 from tests.integration.factories import make_vendor
 from tests.integration.memory.helpers import new_user
-from tests.unit.analysis.test_vendor_comparison import TestNarrative
 from tests.unit.graphs.analysis_harness import default_assessment, rules_in
 from tests.unit.graphs.vendor_harness import favorable, signals_in
 
@@ -52,7 +47,6 @@ VCONFIG = get_vendor_config()
 class VendorStack:
     contract: ContractAnalysisService
     assessments: VendorAssessmentService
-    comparisons: VendorComparisonService
     jobs: JobService
     llm: FakeLLMProvider
     dispatcher: RecordingDispatcher
@@ -162,7 +156,6 @@ async def build_vendor_stack(
         "explain",
         lambda r: DimensionExplanation(reasoning="A summary of this dimension.", mitigations=[]),
     )
-    llm.script("narrative", lambda r: ComparisonNarrative(summary=TestNarrative.GOOD))
 
     rag = RagConfig()
     routes = RouteTable({}, "fake-model")
@@ -216,22 +209,9 @@ async def build_vendor_stack(
             progress_interval=0.0,
         ),
     )
-    comparisons = VendorComparisonService(
-        uow_factory,
-        dispatcher,
-        jobs,
-        VCONFIG,
-        VendorComparisonRunner(
-            ComparisonDeps(llm=llm, routes=routes, store=vendor_store, config=VCONFIG),
-            vendor_store,
-            checkpointer,
-            progress_interval=0.0,
-        ),
-    )
     return VendorStack(
         contract,
         assessments,
-        comparisons,
         jobs,
         llm,
         dispatcher,

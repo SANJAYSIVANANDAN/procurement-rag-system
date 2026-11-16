@@ -238,6 +238,5 @@ def test_job_kind_table_covers_every_task() -> None:
         task_names.PURGE_DOCUMENT,
         task_names.RUN_CONTRACT_ANALYSIS,
         task_names.RUN_VENDOR_ASSESSMENT,
-        task_names.RUN_VENDOR_COMPARISON,
     }
     assert set(JOB_KIND_BY_TASK) == expected

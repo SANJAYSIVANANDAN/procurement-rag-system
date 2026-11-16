@@ -6,12 +6,7 @@ from uuid import uuid4
 import pytest
 
 from covenantiq.ai.llm.base import LLMUnavailable
-from covenantiq.ai.schemas import (
-    ComparisonNarrative,
-    DimensionExplanation,
-    Mitigation,
-    SignalExtraction,
-)
+from covenantiq.ai.schemas import DimensionExplanation, Mitigation, SignalExtraction
 from covenantiq.core.enums import ClauseStatus, DimensionStatus, RiskDimension, Severity
 from covenantiq.core.errors import PermanentTaskError
 from covenantiq.graphs.vendor_assessment.deps import DocumentAnalysis
@@ -393,7 +388,7 @@ class TestExplanations:
 
 class TestTheModelNeverScores:
     def test_no_vendor_output_schema_has_a_numeric_field_except_source_numbers(self) -> None:
-        for schema in (SignalExtraction, DimensionExplanation, ComparisonNarrative):
+        for schema in (SignalExtraction, DimensionExplanation):
             props = schema.model_json_schema().get("properties", {})
             for name, spec in props.items():
                 kinds = {

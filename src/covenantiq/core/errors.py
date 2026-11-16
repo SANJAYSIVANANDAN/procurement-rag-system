@@ -16,8 +16,6 @@ class ErrorCode(StrEnum):
     CONFLICT = "CONFLICT"
     GENERATION_IN_PROGRESS = "GENERATION_IN_PROGRESS"
     DOCUMENT_NOT_READY = "DOCUMENT_NOT_READY"
-    ASSESSMENT_REQUIRED = "ASSESSMENT_REQUIRED"
-    INCOMPATIBLE_ASSESSMENTS = "INCOMPATIBLE_ASSESSMENTS"
     RATE_LIMITED = "RATE_LIMITED"
     INGESTION_BACKLOG = "INGESTION_BACKLOG"
     TOO_MANY_ACTIVE_JOBS = "TOO_MANY_ACTIVE_JOBS"
@@ -118,14 +116,6 @@ class GenerationInProgress(CovenantError):
 
 class DocumentNotReady(CovenantError):
     code = ErrorCode.DOCUMENT_NOT_READY
-
-
-class AssessmentRequired(CovenantError):
-    code = ErrorCode.ASSESSMENT_REQUIRED
-
-
-class IncompatibleAssessments(CovenantError):
-    code = ErrorCode.INCOMPATIBLE_ASSESSMENTS
 
 
 class RateLimited(CovenantError):
