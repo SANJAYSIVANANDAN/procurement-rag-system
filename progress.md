@@ -646,6 +646,16 @@ Source of truth: [PROJECT_SPEC.md](PROJECT_SPEC.md). Milestones are defined in �
 - **A real browser** (see M16), **worker kill and DLQ replay in this stack**, and the production Compose file (`docker-compose.prod.yml` is still a skeleton for M19).
 - The stack is **still running** on this machine with the new images.
 
+## Documentation for teaching, onboarding and manual testing (after M17)
+
+Not code changes; no tests to run. Each is its own commit:
+
+- **`INTERVIEW_PREP.md`** (`ec09f24`): every feature, how each component works, what Redis stores, what RabbitMQ is for, how the event loop model works, written to cover an interview about the project in depth.
+- **`samples/complex_contract.md`** (`c19dbc9`): a long fictional master services agreement (20 clauses, 5 schedules) with deliberate traps — conflicting payment terms resolved by precedence, layered liability caps, renewal and termination edge cases — for manually testing chat, analysis and the evidence gate against something harder than the synthetic eval contracts.
+- **A `logic.md` in each backend package** (`a9d693f`): what the package does, the intuition behind it, a file-by-file table, and an interview-ready summary line, for all 12 packages under `src/covenantiq/`.
+- **`ProjectSpecV1.md`** (`7f66e2d`): a from-scratch summary of what V1 actually is (as opposed to `PROJECT_SPEC.md`, the original plan) — architecture, features, interfaces, verification, deviations, known gaps, and the milestone history.
+- **Top-level `logic.md`** (`a6b18e0`): a one-page map of the whole codebase (backend packages, `frontend/`, `config/`, `tests/`, `docker/`, `docs/`), pointing into the per-package files above.
+
 ## Vendor comparison removed from V1 (after the Docker check)
 
 Built in M13, verified end to end in Docker against two real vendors (narrative, ranking
